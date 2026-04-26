@@ -10,8 +10,14 @@
  * The broad "cabinType" bucket (Innen/Außen/Balkon/Suite) is what users
  * filter and watch by; the specific cabin name is kept for transparency.
  *
- * Some cabin variants are randomly unavailable per cruise (no price row),
- * matching AIDA's "Nicht verfügbar" reality.
+ * Each "route" (ship × destination × duration × ports) produces multiple
+ * departures spaced ~6 weeks apart so the per-route price tracking has
+ * something to compare. A subset of fares is flagged as promo (with a
+ * label like "Frühbucher Plus") so the Aktionen view has data on day 1.
+ *
+ * Each fare also exposes a tiny synthetic price `history`. The scraper
+ * back-fills it on first persist so the "Tage vor Abfahrt zur Aktion"
+ * statistic is meaningful from the very first scrape.
  */
 
 const SHIPS = [
@@ -46,6 +52,10 @@ const FARES = [
   { code: 'SUITE',           name: 'Suite',                 cabinType: 'Suite',  factor: 2.40 },
 ];
 
+const PROMO_LABELS = ['Frühbucher Plus', 'AIDAspecialOffer', 'Last Minute'];
+const DEPARTURES_PER_ROUTE = 6;
+const DAYS_BETWEEN_DEPARTURES = 42;
+
 function seeded(n) {
   const x = Math.sin(n) * 10000;
   return x - Math.floor(x);
@@ -56,52 +66,98 @@ function todayBucket() {
   return d.getUTCFullYear() * 1000 + (d.getUTCMonth() + 1) * 50 + d.getUTCDate();
 }
 
+function isoDaysFromNow(offsetDays) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 function generate() {
   const bucket = todayBucket();
   const cruises = [];
-  let counter = 0;
+  let routeCounter = 0;
 
   for (let s = 0; s < SHIPS.length; s++) {
     for (let a = 0; a < AREAS.length; a++) {
       // Only ~60 % of (ship, region) pairs sail; keeps catalogue realistic.
       if (seeded(s * 31 + a * 17) > 0.6) continue;
-      for (let r = 0; r < 1; r++) {
-        counter += 1;
-        const shipSlug = SHIPS[s].slice(4).toUpperCase();
-        const id = `MOCK-${shipSlug}-A${String(a).padStart(2, '0')}-V${r + 1}`;
-        const nights = 7 + ((s + a + r) % 3) * 7;
+
+      routeCounter += 1;
+      const shipSlug = SHIPS[s].slice(4).toUpperCase();
+      const nights = 7 + ((s + a) % 3) * 7;
+      const routeKey = `${SHIPS[s]}|${AREAS[a].name}|${nights}|${AREAS[a].from}|${AREAS[a].to}`;
+      const routeBasePrice = 600 + ((s * 7 + a * 11) % 9) * 120 + nights * 25;
+
+      for (let d = 0; d < DEPARTURES_PER_ROUTE; d++) {
+        const id = `MOCK-${shipSlug}-A${String(a).padStart(2, '0')}-D${d + 1}`;
         const departs = new Date();
-        departs.setUTCDate(departs.getUTCDate() + 30 + counter * 3);
+        departs.setUTCDate(departs.getUTCDate() + 30 + routeCounter * 3 + d * DAYS_BETWEEN_DEPARTURES);
         const returns = new Date(departs);
         returns.setUTCDate(returns.getUTCDate() + nights);
 
-        const basePrice = 600 + ((s * 7 + a * 11 + r * 13) % 9) * 120 + nights * 25;
-        const wobble = (seeded(bucket + counter) - 0.5) * 0.18;
+        // Departure-level wobble so the same route has different prices per date.
+        const departureWobble = (seeded(routeCounter * 100 + d * 7) - 0.5) * 0.12;
+        const dailyWobble = (seeded(bucket + routeCounter * 11 + d) - 0.5) * 0.08;
 
         const fares = [];
         FARES.forEach((f, i) => {
           // Random availability per cruise/cabin (~85% available).
-          const availSeed = seeded(counter * 100 + i);
+          const availSeed = seeded(routeCounter * 100 + d * 9 + i);
           if (availSeed < 0.15) return;
 
-          const priceNoFlight = Math.round(basePrice * f.factor * (1 + wobble));
-          const flightSurcharge = 220 + ((counter + i) % 3) * 40;
+          const fareBase = routeBasePrice * f.factor * (1 + departureWobble);
+          const promoSeed = seeded(routeCounter * 200 + d * 13 + i * 5);
+          const isPromo = promoSeed > 0.65;
+          const promoLabel = isPromo
+            ? PROMO_LABELS[Math.floor(promoSeed * 1000) % PROMO_LABELS.length]
+            : null;
+          const promoDiscount = isPromo ? (0.15 + (promoSeed - 0.65) * 0.6) : 0; // 15–35 %
+          const currentNoFlight = Math.round(fareBase * (1 - promoDiscount) * (1 + dailyWobble));
+          const flightSurcharge = 220 + ((routeCounter + d + i) % 3) * 40;
+
+          // Seeded backdated history so per-route stats are useful on first run.
+          // For promo fares we draw a believable "regular price → discount" curve;
+          // for full-fare we draw a flat-with-jitter line. The scrape backfills
+          // these only the first time it sees the (cruise_id, fare_code, with_flight) pair.
+          const historyDays = isPromo ? [60, 45, 30, 18, 9] : [50, 35, 20, 10];
+          const promoStartIdx = isPromo
+            ? Math.max(2, Math.floor(promoSeed * historyDays.length))
+            : historyDays.length;
+          const buildHistory = (withFlight) => historyDays.map((ago, h) => {
+            const inPromo = h >= promoStartIdx;
+            const factor = inPromo
+              ? (1 - promoDiscount * (0.6 + (h - promoStartIdx) * 0.15))
+              : (1 + 0.04 - h * 0.01);
+            const base = Math.round(fareBase * factor);
+            return {
+              capturedAt: isoDaysFromNow(-ago),
+              priceEur: withFlight ? base + flightSurcharge : base,
+              isPromo: inPromo,
+              promoLabel: inPromo ? promoLabel : null,
+            };
+          });
 
           fares.push({
             code: f.code,
             name: f.name,
             cabinType: f.cabinType,
-            priceEur: priceNoFlight,
+            priceEur: currentNoFlight,
             currency: 'EUR',
             withFlight: false,
+            isPromo,
+            promoLabel,
+            history: buildHistory(false),
           });
           fares.push({
             code: f.code,
             name: f.name,
             cabinType: f.cabinType,
-            priceEur: priceNoFlight + flightSurcharge,
+            priceEur: currentNoFlight + flightSurcharge,
             currency: 'EUR',
             withFlight: true,
+            isPromo,
+            promoLabel,
+            history: buildHistory(true),
           });
         });
 
@@ -118,6 +174,7 @@ function generate() {
           returnsAt: returns.toISOString().slice(0, 10),
           durationNights: nights,
           url: `https://www.aida.de/kreuzfahrt/${id}`,
+          routeKey,
           raw: { mock: true },
           fares,
         });

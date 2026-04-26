@@ -81,7 +81,13 @@ function ensureColumn(table, column, definition) {
 }
 
 ensureColumn('prices', 'with_flight', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('prices', 'is_promo', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('prices', 'promo_label', 'TEXT');
 ensureColumn('watchlist', 'cabin_filter', 'TEXT'); // CSV "Innen,Balkon" or NULL = any
 ensureColumn('watchlist', 'flight_filter', "TEXT NOT NULL DEFAULT 'any'"); // 'any' | 'with' | 'without'
+ensureColumn('cruises', 'route_key', 'TEXT');
+
+db.exec(`CREATE INDEX IF NOT EXISTS idx_cruises_route_key ON cruises(route_key)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_prices_promo ON prices(is_promo, captured_at DESC)`);
 
 module.exports = db;

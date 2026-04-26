@@ -7,6 +7,8 @@ require('./db'); // ensure schema exists
 
 const cruisesRouter = require('./routes/cruises');
 const watchlistRouter = require('./routes/watchlist');
+const routesRouter = require('./routes/routes');
+const promotionsRouter = require('./routes/promotions');
 const { runScrape } = require('./services/scrape');
 const db = require('./db');
 
@@ -15,6 +17,8 @@ app.use(express.json({ limit: '128kb' }));
 
 app.use('/api/cruises', cruisesRouter);
 app.use('/api/watch', watchlistRouter);
+app.use('/api/routes', routesRouter);
+app.use('/api/promotions', promotionsRouter);
 
 app.get('/api/status', (_req, res) => {
   const lastRun = db.prepare(`SELECT * FROM scrape_runs ORDER BY id DESC LIMIT 1`).get();

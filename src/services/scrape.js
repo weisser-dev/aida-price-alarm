@@ -4,9 +4,9 @@ const { findAlerts, sendAlertsForWatchers } = require('./notify');
 
 const upsertCruise = db.prepare(`
   INSERT INTO cruises (id, title, ship, destination, departure_port, arrival_port,
-                       departs_at, returns_at, duration_nights, url, raw_json, updated_at)
+                       departs_at, returns_at, duration_nights, url, route_key, raw_json, updated_at)
   VALUES (@id, @title, @ship, @destination, @departurePort, @arrivalPort,
-          @departsAt, @returnsAt, @durationNights, @url, @rawJson, datetime('now'))
+          @departsAt, @returnsAt, @durationNights, @url, @routeKey, @rawJson, datetime('now'))
   ON CONFLICT(id) DO UPDATE SET
     title           = excluded.title,
     ship            = excluded.ship,
@@ -17,13 +17,23 @@ const upsertCruise = db.prepare(`
     returns_at      = excluded.returns_at,
     duration_nights = excluded.duration_nights,
     url             = excluded.url,
+    route_key       = COALESCE(excluded.route_key, cruises.route_key),
     raw_json        = excluded.raw_json,
     updated_at      = datetime('now')
 `);
 
 const insertPrice = db.prepare(`
-  INSERT INTO prices (cruise_id, fare_code, fare_name, cabin_type, price_eur, currency, with_flight)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO prices (cruise_id, fare_code, fare_name, cabin_type, price_eur, currency, with_flight, is_promo, promo_label)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const insertPriceAt = db.prepare(`
+  INSERT INTO prices (cruise_id, fare_code, fare_name, cabin_type, price_eur, currency, with_flight, is_promo, promo_label, captured_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const fareHasHistory = db.prepare(`
+  SELECT 1 FROM prices WHERE cruise_id = ? AND fare_code = ? AND with_flight = ? LIMIT 1
 `);
 
 const startRun = db.prepare(`
@@ -60,13 +70,33 @@ async function runScrape({ notify = true, log = console } = {}) {
         returnsAt: c.returnsAt,
         durationNights: c.durationNights,
         url: c.url,
+        routeKey: c.routeKey || null,
         rawJson: c.raw ? JSON.stringify(c.raw) : null,
       });
 
       for (const f of c.fares) {
+        const flightFlag = f.withFlight ? 1 : 0;
+
+        // Backfill seeded history once per (cruise, fare, flight) combination.
+        const seenBefore = fareHasHistory.get(c.id, f.code, flightFlag);
+        if (!seenBefore && Array.isArray(f.history) && f.history.length) {
+          for (const h of f.history) {
+            insertPriceAt.run(
+              c.id, f.code, f.name, f.cabinType, h.priceEur,
+              f.currency || 'EUR', flightFlag,
+              h.isPromo ? 1 : 0,
+              h.promoLabel || null,
+              h.capturedAt,
+            );
+            priceCount += 1;
+          }
+        }
+
         insertPrice.run(
           c.id, f.code, f.name, f.cabinType, f.priceEur,
-          f.currency || 'EUR', f.withFlight ? 1 : 0,
+          f.currency || 'EUR', flightFlag,
+          f.isPromo ? 1 : 0,
+          f.promoLabel || null,
         );
         priceCount += 1;
       }

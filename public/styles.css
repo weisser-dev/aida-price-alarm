@@ -134,3 +134,36 @@ dialog fieldset { border: 1px solid #e3e6ea; border-radius: 6px; padding: 10px 1
 dialog fieldset legend { padding: 0 4px; color: #586069; font-size: 13px; }
 dialog .chips { margin-top: 4px; }
 dialog label.inline { display: inline-flex; align-items: center; gap: 6px; margin-right: 12px; }
+
+/* --- Routes view --- */
+.route-card .cabins {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding-top: 6px;
+}
+.cabin-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #f3f5f8; border: 1px solid #e3e6ea;
+  border-radius: 6px; padding: 3px 8px; font-size: 12px;
+}
+.cabin-badge .cabin-name { color: #586069; }
+.cabin-badge .cabin-price { font-weight: 600; color: #003b73; }
+
+button.link, .link {
+  background: transparent; border: none; padding: 0; cursor: pointer;
+  color: #003b73; font: inherit; text-decoration: underline;
+}
+button.link.small, .link.small { font-size: 12px; }
+
+/* --- Detail tables --- */
+.ptable-wrap { overflow-x: auto; }
+.ptable {
+  width: 100%; border-collapse: collapse; margin: 8px 0 16px;
+  background: white; border: 1px solid #e3e6ea; border-radius: 8px; overflow: hidden;
+}
+.ptable th, .ptable td {
+  padding: 8px 10px; text-align: left; border-bottom: 1px solid #eef0f3;
+  font-size: 13px; vertical-align: top;
+}
+.ptable th { background: #f3f5f8; color: #586069; font-weight: 600; }
+.ptable tbody tr:last-child td { border-bottom: none; }
+.tag.small { font-size: 10px; padding: 1px 6px; }

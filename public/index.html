@@ -10,8 +10,10 @@
   <header class="topbar">
     <h1>AIDA Preisalarm</h1>
     <nav>
-      <button id="nav-cruises" class="active">Reisen</button>
-      <button id="nav-watchlist">Meine Merkliste</button>
+      <button data-view="cruises" class="active">Reisen</button>
+      <button data-view="routes">Routen</button>
+      <button data-view="promotions">Aktionen</button>
+      <button data-view="watchlist">Meine Merkliste</button>
     </nav>
   </header>
 
@@ -42,6 +44,53 @@
       </form>
       <p id="status-line" class="muted"></p>
       <ul id="cruise-list" class="cards"></ul>
+    </section>
+
+    <section id="view-routes" hidden>
+      <form id="route-filters" class="filters">
+        <div class="row">
+          <input type="search" name="q" placeholder="Route durchsuchen (Region, Schiff, Hafen)…" />
+          <select name="ship"><option value="">Alle Schiffe</option></select>
+          <select name="destination"><option value="">Alle Regionen</option></select>
+          <select name="flight">
+            <option value="any">Flug egal</option>
+            <option value="without">ohne Flug</option>
+            <option value="with">mit Flug</option>
+          </select>
+        </div>
+        <div class="row">
+          <button type="submit">Filtern</button>
+          <button type="reset" class="ghost">Zurücksetzen</button>
+        </div>
+      </form>
+      <p id="route-status" class="muted"></p>
+      <ul id="route-list" class="cards"></ul>
+    </section>
+
+    <section id="view-route-detail" hidden>
+      <p><button id="route-back" class="link">← zurück zur Routenübersicht</button></p>
+      <div id="route-detail-body"></div>
+    </section>
+
+    <section id="view-promotions" hidden>
+      <form id="promo-filters" class="filters">
+        <div class="row">
+          <select name="ship"><option value="">Alle Schiffe</option></select>
+          <select name="destination"><option value="">Alle Regionen</option></select>
+          <select name="flight">
+            <option value="any">Flug egal</option>
+            <option value="without">ohne Flug</option>
+            <option value="with">mit Flug</option>
+          </select>
+        </div>
+        <div class="row chips" id="promo-cabin-chips" aria-label="Kabinenarten"></div>
+        <div class="row">
+          <button type="submit">Filtern</button>
+          <button type="reset" class="ghost">Zurücksetzen</button>
+        </div>
+      </form>
+      <p id="promo-status" class="muted"></p>
+      <ul id="promo-list" class="cards"></ul>
     </section>
 
     <section id="view-watchlist" hidden>

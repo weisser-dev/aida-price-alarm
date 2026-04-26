@@ -37,6 +37,21 @@ async function fetchCruises() {
   return normaliseAidaResponse(payload);
 }
 
+function deriveRouteKey(c) {
+  if (c.routeKey) return c.routeKey;
+  // AIDA's own grouping when present.
+  if (c.routeGroupCode) return String(c.routeGroupCode);
+  if (c.yieldRouteCode) return String(c.yieldRouteCode);
+  // Fallback: stable shape so two departures of the same itinerary collide.
+  const ship = c.ship || c.shipName || '';
+  const dest = c.destination || c.area || c.region || '';
+  const dur = c.durationNights ?? c.nights ?? '';
+  const from = c.departurePort || c.embarkationPort || '';
+  const to = c.arrivalPort || c.disembarkationPort || '';
+  if (!ship || !dest || !dur) return null;
+  return `${ship}|${dest}|${dur}|${from}|${to}`;
+}
+
 function normaliseAidaResponse(payload) {
   const items = Array.isArray(payload) ? payload : payload.cruises || payload.items || [];
 
@@ -52,6 +67,9 @@ function normaliseAidaResponse(payload) {
         priceEur: Number(f.priceEur ?? f.price ?? f.amount ?? 0),
         currency: f.currency || 'EUR',
         withFlight: Boolean(f.withFlight ?? f.includesFlight ?? f.flight ?? false),
+        isPromo: Boolean(f.isPromo ?? f.promo ?? false),
+        promoLabel: f.promoLabel || f.promotionLabel || null,
+        history: Array.isArray(f.history) ? f.history : null,
       })).filter((f) => Number.isFinite(f.priceEur) && f.priceEur > 0);
 
       return {
@@ -65,6 +83,7 @@ function normaliseAidaResponse(payload) {
         returnsAt: c.returnsAt || c.returnDate || c.to || null,
         durationNights: c.durationNights ?? c.nights ?? null,
         url: c.url || c.detailUrl || null,
+        routeKey: deriveRouteKey(c),
         raw: c,
         fares,
       };
