@@ -104,6 +104,10 @@ jobs:
             if [ -f "$STAGING/.env" ];  then sudo mv "$STAGING/.env" "$DEPLOY_DIR/.env"; fi
             sudo rm -rf "$STAGING"
 
+            # Make data dir writable for the non-root "node" user (uid 1000) inside the container.
+            sudo mkdir -p "$DEPLOY_DIR/data"
+            sudo chown -R 1000:1000 "$DEPLOY_DIR/data"
+
             cd "$DEPLOY_DIR"
             sudo -E docker compose -p "$PROJECT" --profile "$PROFILE" up -d --build --remove-orphans
             sudo docker image prune -f
@@ -162,6 +166,10 @@ jobs:
             if [ -d "$STAGING/data" ]; then sudo rm -rf "$DEPLOY_DIR/data"; sudo mv "$STAGING/data" "$DEPLOY_DIR/data"; fi
             if [ -f "$STAGING/.env" ];  then sudo mv "$STAGING/.env" "$DEPLOY_DIR/.env"; fi
             sudo rm -rf "$STAGING"
+
+            # Make data dir writable for the non-root "node" user (uid 1000) inside the container.
+            sudo mkdir -p "$DEPLOY_DIR/data"
+            sudo chown -R 1000:1000 "$DEPLOY_DIR/data"
 
             cd "$DEPLOY_DIR"
             sudo -E docker compose -p "$PROJECT" --profile "$PROFILE" up -d --build --remove-orphans
