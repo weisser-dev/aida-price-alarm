@@ -68,21 +68,20 @@ Beim Anlegen eines Watchlist-Eintrags wird der aktuell günstigste Tarif als „
 ## Docker
 
 ```bash
-docker compose --profile prod up -d --build
+docker compose up -d --build
 ```
 
 Das Image wird aus dem `Dockerfile` gebaut, die SQLite-Datei liegt im Bind-Mount `./data`. Konfiguration via `.env` (optional) oder direkt über `environment:` im Compose.
 
 ## Deployment (GitHub Actions)
 
-Der Workflow `.github/workflows/deploy.yml` ist an das aus dem Beispiel angelehnt:
+Der Workflow `.github/workflows/deploy.yml` deployt **jeden** Push (auf jedem Branch) in dieselbe Produktionsumgebung. Solo-Setup, kein dev/prod-Split.
 
-- **Trigger:** Push auf `main` oder beliebige Branches (mit relevanten Pfaden) sowie `workflow_dispatch`. `claude/*`-Branches werden vom Auto-Deploy ausgenommen.
-- **Targets:** `main` → Profil `prod` (Port 3000), alle anderen Branches → Profil `dev` (Port 3001). Beide laufen auf dem gleichen Server unter `/opt/aida-price-alarm/{prod,dev}`.
+- **Trigger:** Push auf beliebigen Branch mit relevanten Pfaden, oder manuell via `workflow_dispatch`.
 - **Übertragung:** Tar-Bundle via `appleboy/scp-action`, Deploy via `appleboy/ssh-action`.
-- **Datenpersistenz:** `data/` und eine optionale operator-gepflegte `.env` werden bei jedem Redeploy in einem Staging-Verzeichnis zwischengespeichert und nach dem Entpacken zurückgelegt – das Compose-Verzeichnis selbst wird sauber neu aufgesetzt.
-- **Backup auf `main`:** Vor dem prod-Deploy wird ein Online-Backup der SQLite-Datei erzeugt (`sqlite3 .backup` aus einem Wegwerf-Container, gzipped) nach `/opt/backups/aida/aida_<timestamp>.db.gz`. Es werden die letzten 10 Backups aufbewahrt.
-- **Healthcheck:** Compose hat einen `wget` auf `/api/status` als Healthcheck.
+- **Datenpersistenz:** `data/` und eine operator-gepflegte `.env` werden bei jedem Redeploy in einem Staging-Verzeichnis zwischengespeichert und nach dem Entpacken zurückgelegt – das Compose-Verzeichnis selbst wird sauber neu aufgesetzt.
+- **SQLite-Backup vor jedem Deploy:** Online-Backup via `sqlite3 .backup` aus einem Wegwerf-`alpine`-Container, gzipped, nach `/opt/backups/aida/aida_<timestamp>.db.gz`. Es werden die letzten 10 Backups aufbewahrt.
+- **Healthcheck:** Compose hat einen `wget` auf `/api/status`.
 
 ### Benötigte GitHub-Secrets
 
@@ -95,28 +94,22 @@ Der Workflow `.github/workflows/deploy.yml` ist an das aus dem Beispiel angelehn
 ### Server-Vorbereitung (einmalig)
 
 ```bash
-sudo mkdir -p /opt/aida-price-alarm/{prod,dev} /opt/backups/aida
+sudo mkdir -p /opt/aida-price-alarm /opt/backups/aida
 # Caddy-Netz muss existieren und extern markiert sein:
 docker network inspect caddy-net >/dev/null 2>&1 || docker network create caddy-net
-# SMTP- und Live-API-Konfig anlegen (optional, sonst Mock + Mail-Log auf stdout):
-sudo vi /opt/aida-price-alarm/prod/.env
+# Konfiguration (SMTP, Live-API). Datei überlebt Redeploys:
+sudo vi /opt/aida-price-alarm/.env
 ```
 
-Beim ersten Deploy wird das Compose-Stack gebaut, ein leeres Volume `data/` angelegt und die App startet im Mock-Modus, sofern die `.env` keinen Live-Endpoint setzt.
+Beim ersten Deploy wird das Compose-Stack gebaut, ein leeres `data/` angelegt und die App startet im Mock-Modus, sofern die `.env` keinen Live-Endpoint setzt.
 
 ### Caddy
 
-Der Container exponiert nur intern Port 3000 und hängt im externen Netz `caddy-net`. Der Container-Name ist deterministisch (`aida-price-alarm-prod` bzw. `aida-price-alarm-dev`), sodass Caddy direkt darauf proxen kann:
+Der Container exponiert nur intern Port 3000 und hängt im externen Netz `caddy-net`. Der Container heißt schlicht `aida-price-alarm`:
 
 ```caddy
 aida.weisser.dev {
-    reverse_proxy aida-price-alarm-prod:3000
-    encode gzip zstd
-}
-
-# optional, parallel das Dev-Stack:
-aida-dev.weisser.dev {
-    reverse_proxy aida-price-alarm-dev:3000
+    reverse_proxy aida-price-alarm:3000
     encode gzip zstd
 }
 ```

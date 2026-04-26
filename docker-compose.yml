@@ -1,11 +1,10 @@
 services:
   aida-app:
-    profiles: [prod, dev]
     build:
       context: .
       dockerfile: Dockerfile
-    image: aida-price-alarm:${PROFILE:-prod}
-    container_name: aida-price-alarm-${PROFILE:-prod}
+    image: aida-price-alarm
+    container_name: aida-price-alarm
     restart: unless-stopped
     # Kein Host-Port-Mapping: Caddy spricht den Container intern über
     # caddy-net an. Für lokale Tests in einer docker-compose.override.yml

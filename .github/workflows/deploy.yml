@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
       - '**'
     paths:
       - 'src/**'
@@ -19,30 +18,14 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_DIR: /opt/aida-price-alarm
+      PROJECT: aida-price-alarm
+      BACKUP_DIR: /opt/backups/aida
+      APP_PORT: '3000'
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Determine deployment target
-        id: target
-        run: |
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            echo "env=prod"                                       >> "$GITHUB_OUTPUT"
-            echo "profile=prod"                                   >> "$GITHUB_OUTPUT"
-            echo "deploy_dir=/opt/aida-price-alarm/prod"          >> "$GITHUB_OUTPUT"
-            echo "project=aida-price-alarm-prod"                  >> "$GITHUB_OUTPUT"
-            echo "app_port_value=3000"                            >> "$GITHUB_OUTPUT"
-            echo "backup_dir=/opt/backups/aida"                   >> "$GITHUB_OUTPUT"
-            echo "needs_backup=true"                              >> "$GITHUB_OUTPUT"
-          else
-            echo "env=dev"                                        >> "$GITHUB_OUTPUT"
-            echo "profile=dev"                                    >> "$GITHUB_OUTPUT"
-            echo "deploy_dir=/opt/aida-price-alarm/dev"           >> "$GITHUB_OUTPUT"
-            echo "project=aida-price-alarm-dev"                   >> "$GITHUB_OUTPUT"
-            echo "app_port_value=3000"                            >> "$GITHUB_OUTPUT"
-            echo "backup_dir=/opt/backups/aida"                   >> "$GITHUB_OUTPUT"
-            echo "needs_backup=false"                             >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -68,66 +51,20 @@ jobs:
           source: "aida-deploy.tgz"
           target: "/tmp"
 
-      # ------- DEV / non-main: deploy without backup -------
-      - name: Deploy on server without SQLite backup (non-main branches)
-        if: steps.target.outputs.needs_backup == 'false'
+      - name: Deploy on server with SQLite backup
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_DIR: ${{ env.DEPLOY_DIR }}
+          PROJECT: ${{ env.PROJECT }}
+          BACKUP_DIR: ${{ env.BACKUP_DIR }}
+          APP_PORT: ${{ env.APP_PORT }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: DEPLOY_DIR,PROJECT,BACKUP_DIR,APP_PORT
           script: |
             set -e
-            DEPLOY_DIR='${{ steps.target.outputs.deploy_dir }}'
-            PROJECT='${{ steps.target.outputs.project }}'
-            PROFILE='${{ steps.target.outputs.profile }}'
-            export APP_PORT='${{ steps.target.outputs.app_port_value }}'
-            export PROFILE
-
-            sudo mkdir -p "$DEPLOY_DIR"
-
-            # Stop the old stack if it exists
-            if [ -f "$DEPLOY_DIR/docker-compose.yml" ]; then
-              ( cd "$DEPLOY_DIR" && sudo docker compose -p "$PROJECT" --profile "$PROFILE" down --remove-orphans ) || true
-            fi
-
-            # Preserve persistent data and operator-managed .env across redeploys
-            STAGING="$(mktemp -d)"
-            if [ -d "$DEPLOY_DIR/data" ]; then sudo mv "$DEPLOY_DIR/data" "$STAGING/data"; fi
-            if [ -f "$DEPLOY_DIR/.env" ];  then sudo mv "$DEPLOY_DIR/.env"  "$STAGING/.env"; fi
-
-            sudo rm -rf "$DEPLOY_DIR"
-            sudo mkdir -p "$DEPLOY_DIR"
-            sudo tar xzf /tmp/aida-deploy.tgz -C "$DEPLOY_DIR"
-
-            if [ -d "$STAGING/data" ]; then sudo rm -rf "$DEPLOY_DIR/data"; sudo mv "$STAGING/data" "$DEPLOY_DIR/data"; fi
-            if [ -f "$STAGING/.env" ];  then sudo mv "$STAGING/.env" "$DEPLOY_DIR/.env"; fi
-            sudo rm -rf "$STAGING"
-
-            # Make data dir writable for the non-root "node" user (uid 1000) inside the container.
-            sudo mkdir -p "$DEPLOY_DIR/data"
-            sudo chown -R 1000:1000 "$DEPLOY_DIR/data"
-
-            cd "$DEPLOY_DIR"
-            sudo -E docker compose -p "$PROJECT" --profile "$PROFILE" up -d --build --remove-orphans
-            sudo docker image prune -f
-
-      # ------- PROD / main: backup + deploy -------
-      - name: Deploy on server with SQLite backup (main branch)
-        if: steps.target.outputs.needs_backup == 'true'
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            set -e
-            DEPLOY_DIR='${{ steps.target.outputs.deploy_dir }}'
-            PROJECT='${{ steps.target.outputs.project }}'
-            PROFILE='${{ steps.target.outputs.profile }}'
-            BACKUP_DIR='${{ steps.target.outputs.backup_dir }}'
-            export APP_PORT='${{ steps.target.outputs.app_port_value }}'
-            export PROFILE
 
             # ---- SQLite backup (skip if no existing DB) ----
             if [ -f "$DEPLOY_DIR/data/aida.db" ]; then
@@ -148,13 +85,13 @@ jobs:
               echo "No existing database at $DEPLOY_DIR/data/aida.db — skipping backup."
             fi
 
-            # ---- Deploy new version ----
-            echo "Deploying new version…"
+            # ---- Stop the old stack ----
             sudo mkdir -p "$DEPLOY_DIR"
             if [ -f "$DEPLOY_DIR/docker-compose.yml" ]; then
-              ( cd "$DEPLOY_DIR" && sudo docker compose -p "$PROJECT" --profile "$PROFILE" down --remove-orphans ) || true
+              ( cd "$DEPLOY_DIR" && sudo docker compose -p "$PROJECT" down --remove-orphans ) || true
             fi
 
+            # ---- Stage out persistent files, replace deploy dir ----
             STAGING="$(mktemp -d)"
             if [ -d "$DEPLOY_DIR/data" ]; then sudo mv "$DEPLOY_DIR/data" "$STAGING/data"; fi
             if [ -f "$DEPLOY_DIR/.env" ];  then sudo mv "$DEPLOY_DIR/.env"  "$STAGING/.env"; fi
@@ -172,7 +109,7 @@ jobs:
             sudo chown -R 1000:1000 "$DEPLOY_DIR/data"
 
             cd "$DEPLOY_DIR"
-            sudo -E docker compose -p "$PROJECT" --profile "$PROFILE" up -d --build --remove-orphans
+            sudo -E APP_PORT="$APP_PORT" docker compose -p "$PROJECT" up -d --build --remove-orphans
 
             sudo docker image prune -f
             echo "Deployment completed successfully!"
