@@ -20,6 +20,7 @@ app.use('/api/campaigns', campaignsRouter);
 
 app.get('/api/status', (_req, res) => {
   const lastRun = db.prepare(`SELECT * FROM scrape_runs ORDER BY id DESC LIMIT 1`).get();
+  const recentRuns = db.prepare(`SELECT * FROM scrape_runs ORDER BY id DESC LIMIT 10`).all();
   const counts = db.prepare(`
     SELECT
       (SELECT COUNT(*) FROM routes)    AS routes,
@@ -28,12 +29,25 @@ app.get('/api/status', (_req, res) => {
       (SELECT COUNT(*) FROM campaigns) AS campaigns,
       (SELECT COUNT(*) FROM watchlist) AS watchers
   `).get();
+  const perRegion = db.prepare(`
+    SELECT region, COUNT(*) AS routes,
+           (SELECT COUNT(*) FROM journeys j JOIN routes r2 ON r2.id = j.route_id WHERE r2.region = routes.region) AS journeys
+    FROM routes WHERE region IS NOT NULL GROUP BY region ORDER BY region
+  `).all();
+  const perShip = db.prepare(`
+    SELECT ship_name, COUNT(*) AS routes,
+           (SELECT COUNT(*) FROM journeys j JOIN routes r2 ON r2.id = j.route_id WHERE r2.ship_name = routes.ship_name) AS journeys
+    FROM routes WHERE ship_name IS NOT NULL GROUP BY ship_name ORDER BY ship_name
+  `).all();
   res.json({
     ok: true,
     mockMode: config.scrape.useMock,
     cron: config.scrape.cron,
     lastRun,
+    recentRuns,
     counts,
+    perRegion,
+    perShip,
   });
 });
 

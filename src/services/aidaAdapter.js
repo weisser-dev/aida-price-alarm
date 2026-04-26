@@ -95,32 +95,72 @@ async function fetchFilterCatalog() {
 }
 
 /**
- * Iterates every region, paginates the search, and returns a normalised list
- * of routes. Each route carries its journeys and the journey carries its
- * tariff/flight price variants and active campaigns.
+ * Iterates every region, paginates the search, and yields normalised routes
+ * region-by-region so the caller can persist partial progress.
+ *
+ *   for await (const { region, regionName, routes, error } of streamCatalog())
+ *
+ * On a per-region error (e.g. Akamai blocks) we yield it and continue with
+ * the next region instead of aborting the whole scrape.
  */
-async function fetchAllRoutes({ adults = 2, log = console, pauseMs = 700 } = {}) {
-  const merged = new Map(); // routeId -> normalised route accumulator
-
+async function* streamCatalog({ adults = 2, log = console, pauseMs = 900 } = {}) {
   for (const region of REGIONS) {
-    let page = 1, totalPages = 1;
-    do {
-      const data = await aidaJson(SEARCH_PATH, {
-        region, p: page, size: 20,
-        sortCriteria: 'DepartureDate', sortDirection: 'Asc',
-        adults,
-      });
-      totalPages = Number(data.totalPages || 1);
-      const items = Array.isArray(data.cruiseItems) ? data.cruiseItems : [];
-      const regionName = REGION_NAMES[region] || region;
-      for (const item of items) accumulateRoute(merged, item, regionName);
-      log.info?.(`[scrape] region=${region} page=${page}/${totalPages} items=${items.length}`);
-      page += 1;
-      await sleep(pauseMs);
-    } while (page <= totalPages);
-  }
+    const regionName = REGION_NAMES[region] || region;
+    const merged = new Map();
+    let regionError = null;
 
-  return [...merged.values()];
+    try {
+      // Fresh cookie per region keeps Akamai sessions short and isolates
+      // problems: a failure in one region doesn't poison the next.
+      await ensureCookie(true);
+
+      let page = 1, totalPages = 1;
+      do {
+        const data = await aidaJson(SEARCH_PATH, {
+          region, p: page, size: 20,
+          sortCriteria: 'DepartureDate', sortDirection: 'Asc',
+          adults,
+        });
+        totalPages = Number(data.totalPages || 1);
+        const items = Array.isArray(data.cruiseItems) ? data.cruiseItems : [];
+        for (const item of items) accumulateRoute(merged, item, regionName);
+        log.info?.(`[scrape] region=${region} page=${page}/${totalPages} items=${items.length}`);
+        page += 1;
+        await sleep(pauseMs);
+      } while (page <= totalPages);
+    } catch (err) {
+      regionError = String(err && err.message || err);
+      log.warn?.(`[scrape] region=${region} failed: ${regionError}`);
+    }
+
+    yield {
+      region,
+      regionName,
+      routes: [...merged.values()].map((r) => ({
+        ...r,
+        journeys: [...r.journeys.values()].map((j) => ({
+          ...j,
+          prices: [...j.prices.values()],
+          campaigns: [...j.campaigns.values()],
+        })),
+      })),
+      error: regionError,
+    };
+  }
+}
+
+async function fetchAllRoutes(options = {}) {
+  const all = new Map();
+  for await (const chunk of streamCatalog(options)) {
+    for (const r of chunk.routes) {
+      // Merge journey lists across regions (a route can appear in two)
+      const existing = all.get(r.id);
+      if (!existing) { all.set(r.id, r); continue; }
+      const seen = new Set(existing.journeys.map((j) => j.id));
+      for (const j of r.journeys) if (!seen.has(j.id)) existing.journeys.push(j);
+    }
+  }
+  return [...all.values()];
 }
 
 function accumulateRoute(map, item, regionName) {
@@ -219,22 +259,15 @@ async function fetchCatalog(options = {}) {
   if (config.scrape.useMock) {
     return mockData.generate();
   }
-  const routes = await fetchAllRoutes(options);
-  // Flatten the Maps used for dedup into the arrays the persistence layer expects.
-  return routes.map((r) => ({
-    ...r,
-    journeys: [...r.journeys.values()].map((j) => ({
-      ...j,
-      prices: [...j.prices.values()],
-      campaigns: [...j.campaigns.values()],
-    })),
-  }));
+  return fetchAllRoutes(options);
 }
 
 module.exports = {
   fetchCatalog,
   fetchFilterCatalog,
+  streamCatalog,
   REGIONS,
+  REGION_NAMES,
   TARIFF_NAMES,
   // exported for tests / CLI tools
   ensureCookie,

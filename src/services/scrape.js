@@ -1,5 +1,6 @@
 const db = require('../db');
-const { fetchCatalog } = require('./aidaAdapter');
+const adapter = require('./aidaAdapter');
+const config = require('../config');
 const { findAlerts, sendAlertsForWatchers } = require('./notify');
 
 const upsertRoute = db.prepare(`
@@ -14,19 +15,13 @@ const upsertRoute = db.prepare(`
     @durationNights, @portsJson, @imageUrl, datetime('now')
   )
   ON CONFLICT(id) DO UPDATE SET
-    route_code      = excluded.route_code,
-    yield_code      = excluded.yield_code,
-    route_group     = excluded.route_group,
-    title           = excluded.title,
-    ship_code       = excluded.ship_code,
-    ship_name       = excluded.ship_name,
-    region          = excluded.region,
-    departure_port  = excluded.departure_port,
-    arrival_port    = excluded.arrival_port,
-    duration_nights = excluded.duration_nights,
-    ports_json      = excluded.ports_json,
-    image_url       = excluded.image_url,
-    updated_at      = datetime('now')
+    route_code = excluded.route_code, yield_code = excluded.yield_code,
+    route_group = excluded.route_group, title = excluded.title,
+    ship_code = excluded.ship_code, ship_name = excluded.ship_name,
+    region = excluded.region, departure_port = excluded.departure_port,
+    arrival_port = excluded.arrival_port, duration_nights = excluded.duration_nights,
+    ports_json = excluded.ports_json, image_url = excluded.image_url,
+    updated_at = datetime('now')
 `);
 
 const upsertJourney = db.prepare(`
@@ -39,14 +34,11 @@ const upsertJourney = db.prepare(`
     @bookingUrl, @imageUrl, datetime('now')
   )
   ON CONFLICT(id) DO UPDATE SET
-    route_id        = excluded.route_id,
-    ship_code       = excluded.ship_code,
+    route_id = excluded.route_id, ship_code = excluded.ship_code,
     duration_nights = excluded.duration_nights,
-    departs_at      = excluded.departs_at,
-    returns_at      = excluded.returns_at,
-    booking_url     = excluded.booking_url,
-    image_url       = excluded.image_url,
-    updated_at      = datetime('now')
+    departs_at = excluded.departs_at, returns_at = excluded.returns_at,
+    booking_url = excluded.booking_url, image_url = excluded.image_url,
+    updated_at = datetime('now')
 `);
 
 const insertPrice = db.prepare(`
@@ -59,11 +51,9 @@ const upsertCampaign = db.prepare(`
   INSERT INTO campaigns (journey_id, code, name, medium, valid_from, valid_to)
   VALUES (?, ?, ?, ?, ?, ?)
 `);
-const deleteOldCampaigns = db.prepare(`
-  DELETE FROM campaigns WHERE journey_id = ?
-`);
+const deleteOldCampaigns = db.prepare(`DELETE FROM campaigns WHERE journey_id = ?`);
 
-const startRun = db.prepare(`INSERT INTO scrape_runs (status) VALUES ('running')`);
+const startRun  = db.prepare(`INSERT INTO scrape_runs (status) VALUES ('running')`);
 const finishRun = db.prepare(`
   UPDATE scrape_runs
      SET finished_at = datetime('now'), status = ?,
@@ -71,21 +61,9 @@ const finishRun = db.prepare(`
    WHERE id = ?
 `);
 
-async function runScrape({ notify = true, log = console } = {}) {
-  const runInfo = startRun.run();
-  const runId = runInfo.lastInsertRowid;
-
-  let routes;
-  try {
-    routes = await fetchCatalog({ log });
-  } catch (err) {
-    finishRun.run('error', 0, 0, 0, 0, String(err && err.message || err), runId);
-    throw err;
-  }
-
-  let journeyCount = 0, priceCount = 0, campaignCount = 0;
-
-  const persist = db.transaction((items) => {
+function persistRoutes(routes) {
+  let routeCount = 0, journeyCount = 0, priceCount = 0, campaignCount = 0;
+  const tx = db.transaction((items) => {
     for (const r of items) {
       upsertRoute.run({
         id: r.id,
@@ -102,6 +80,7 @@ async function runScrape({ notify = true, log = console } = {}) {
         portsJson: r.portsJson || null,
         imageUrl: r.imageUrl || null,
       });
+      routeCount += 1;
 
       for (const j of r.journeys) {
         upsertJourney.run({
@@ -110,14 +89,12 @@ async function runScrape({ notify = true, log = console } = {}) {
           shipCode: j.shipCode || r.shipCode || null,
           durationNights: j.durationNights ?? r.durationNights ?? null,
           departsAt: j.departsAt,
-          returnsAt: j.returns_at || j.returnsAt,
+          returnsAt: j.returnsAt,
           bookingUrl: j.bookingUrl || null,
           imageUrl: j.imageUrl || null,
         });
         journeyCount += 1;
 
-        // Defence-in-depth dedup: the adapter already collapses by
-        // (tariff, flight) but mock + future adapters could repeat.
         const seen = new Map();
         for (const p of (j.prices || [])) {
           const key = `${p.tariffType}|${p.flightIncluded ? 1 : 0}`;
@@ -126,25 +103,20 @@ async function runScrape({ notify = true, log = console } = {}) {
         }
         for (const p of seen.values()) {
           insertPrice.run(
-            j.id,
-            p.tariffType,
-            p.tariffName || null,
+            j.id, p.tariffType, p.tariffName || null,
             p.flightIncluded ? 1 : 0,
-            p.amountEur,
-            p.perPersonEur ?? null,
+            p.amountEur, p.perPersonEur ?? null,
             p.currency || '€',
             p.notes && p.notes.length ? JSON.stringify(p.notes) : null,
           );
           priceCount += 1;
         }
 
-        // Always reset campaigns for journeys we just upserted, so stale
-        // entries from yesterday don't linger when AIDA drops them today.
         deleteOldCampaigns.run(j.id);
-        const seenCampaigns = new Set();
+        const seenCamps = new Set();
         for (const c of (j.campaigns || [])) {
-          if (seenCampaigns.has(c.code)) continue;
-          seenCampaigns.add(c.code);
+          if (seenCamps.has(c.code)) continue;
+          seenCamps.add(c.code);
           upsertCampaign.run(j.id, c.code, c.name || null, c.medium || null,
             c.validFrom || null, c.validTo || null);
           campaignCount += 1;
@@ -152,10 +124,53 @@ async function runScrape({ notify = true, log = console } = {}) {
       }
     }
   });
-  persist(routes);
+  tx(routes);
+  return { routeCount, journeyCount, priceCount, campaignCount };
+}
 
-  finishRun.run('ok', routes.length, journeyCount, priceCount, campaignCount, null, runId);
-  log.info?.(`[scrape] persisted ${routes.length} routes / ${journeyCount} journeys / ${priceCount} prices / ${campaignCount} campaigns`);
+async function runScrape({ notify = true, log = console } = {}) {
+  const runInfo = startRun.run();
+  const runId = runInfo.lastInsertRowid;
+
+  let totals = { routes: 0, journeys: 0, prices: 0, campaigns: 0 };
+  const regionErrors = [];
+
+  try {
+    if (config.scrape.useMock) {
+      const all = await adapter.fetchCatalog({ log });
+      const r = persistRoutes(all);
+      totals.routes += r.routeCount;
+      totals.journeys += r.journeyCount;
+      totals.prices += r.priceCount;
+      totals.campaigns += r.campaignCount;
+    } else {
+      // Streaming + persist-per-region: a partial scrape still leaves data
+      // in the DB if Akamai blocks half-way.
+      for await (const chunk of adapter.streamCatalog({ log })) {
+        if (chunk.error) regionErrors.push(`${chunk.region}: ${chunk.error}`);
+        if (chunk.routes.length) {
+          const r = persistRoutes(chunk.routes);
+          totals.routes += r.routeCount;
+          totals.journeys += r.journeyCount;
+          totals.prices += r.priceCount;
+          totals.campaigns += r.campaignCount;
+          log.info?.(`[scrape] persisted region=${chunk.region}: +${r.routeCount} routes, +${r.journeyCount} journeys, +${r.priceCount} prices`);
+        }
+      }
+    }
+  } catch (err) {
+    finishRun.run('error', totals.routes, totals.journeys, totals.prices, totals.campaigns, String(err && err.message || err), runId);
+    throw err;
+  }
+
+  const status = regionErrors.length ? 'partial' : 'ok';
+  finishRun.run(
+    status,
+    totals.routes, totals.journeys, totals.prices, totals.campaigns,
+    regionErrors.length ? regionErrors.join(' | ') : null,
+    runId,
+  );
+  log.info?.(`[scrape] done (${status}): ${totals.routes} routes / ${totals.journeys} journeys / ${totals.prices} prices / ${totals.campaigns} campaigns${regionErrors.length ? ` · errors in ${regionErrors.length} region(s)` : ''}`);
 
   if (notify) {
     const alerts = findAlerts();
@@ -165,12 +180,7 @@ async function runScrape({ notify = true, log = console } = {}) {
     }
   }
 
-  return {
-    routes: routes.length,
-    journeys: journeyCount,
-    prices: priceCount,
-    campaigns: campaignCount,
-  };
+  return totals;
 }
 
 module.exports = { runScrape };
