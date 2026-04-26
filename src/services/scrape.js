@@ -22,8 +22,8 @@ const upsertCruise = db.prepare(`
 `);
 
 const insertPrice = db.prepare(`
-  INSERT INTO prices (cruise_id, fare_code, fare_name, cabin_type, price_eur, currency)
-  VALUES (?, ?, ?, ?, ?, ?)
+  INSERT INTO prices (cruise_id, fare_code, fare_name, cabin_type, price_eur, currency, with_flight)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
 `);
 
 const startRun = db.prepare(`
@@ -64,7 +64,10 @@ async function runScrape({ notify = true, log = console } = {}) {
       });
 
       for (const f of c.fares) {
-        insertPrice.run(c.id, f.code, f.name, f.cabinType, f.priceEur, f.currency || 'EUR');
+        insertPrice.run(
+          c.id, f.code, f.name, f.cabinType, f.priceEur,
+          f.currency || 'EUR', f.withFlight ? 1 : 0,
+        );
         priceCount += 1;
       }
     }

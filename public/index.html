@@ -18,10 +18,27 @@
   <main>
     <section id="view-cruises">
       <form id="filters" class="filters">
-        <input type="search" name="q" placeholder="Suche nach Reise, Schiff, Region…" />
-        <select name="ship"><option value="">Alle Schiffe</option></select>
-        <select name="destination"><option value="">Alle Ziele</option></select>
-        <button type="submit">Filtern</button>
+        <div class="row">
+          <input type="search" name="q" placeholder="Suche nach Reise, Schiff, Region oder Hafen…" />
+          <select name="ship"><option value="">Alle Schiffe</option></select>
+          <select name="destination"><option value="">Alle Regionen</option></select>
+        </div>
+        <div class="row">
+          <label class="inline">Abfahrt von <input type="date" name="departsFrom" /></label>
+          <label class="inline">bis <input type="date" name="departsTo" /></label>
+          <select name="flight">
+            <option value="any">Flug egal</option>
+            <option value="without">ohne Flug</option>
+            <option value="with">mit Flug</option>
+          </select>
+        </div>
+        <div class="row chips" id="cabin-chips" aria-label="Kabinenarten">
+          <!-- cabin checkboxes injected -->
+        </div>
+        <div class="row">
+          <button type="submit">Filtern</button>
+          <button type="reset" class="ghost">Zurücksetzen</button>
+        </div>
       </form>
       <p id="status-line" class="muted"></p>
       <ul id="cruise-list" class="cards"></ul>
@@ -42,10 +59,24 @@
     <form method="dialog" id="watch-form">
       <h3 id="watch-title">Reise merken</h3>
       <p id="watch-subtitle" class="muted"></p>
+
+      <fieldset>
+        <legend>Welche Kabinenarten sollen wir beobachten?</legend>
+        <div class="chips" id="watch-cabin-chips"><!-- injected --></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Mit Flug?</legend>
+        <label class="inline"><input type="radio" name="flightOption" value="any" checked> egal</label>
+        <label class="inline"><input type="radio" name="flightOption" value="without"> ohne Flug</label>
+        <label class="inline"><input type="radio" name="flightOption" value="with"> mit Flug</label>
+      </fieldset>
+
       <label>Deine E-Mail:
         <input type="email" name="email" required placeholder="du@example.com" />
       </label>
-      <p class="muted small">Du erhältst eine E-Mail, sobald der Preis günstiger wird oder neue Tarife verfügbar sind. Abmelden geht jederzeit per Link in jeder Mail.</p>
+      <p class="muted small">Du erhältst eine E-Mail, sobald der Preis innerhalb deiner Auswahl günstiger wird. Abmelden geht jederzeit per Link in jeder Mail.</p>
+
       <menu>
         <button value="cancel" type="reset">Abbrechen</button>
         <button id="watch-submit" value="default">Merken</button>

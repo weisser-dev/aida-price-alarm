@@ -51,6 +51,7 @@ function normaliseAidaResponse(payload) {
         cabinType: f.cabinType || f.cabin || null,
         priceEur: Number(f.priceEur ?? f.price ?? f.amount ?? 0),
         currency: f.currency || 'EUR',
+        withFlight: Boolean(f.withFlight ?? f.includesFlight ?? f.flight ?? false),
       })).filter((f) => Number.isFinite(f.priceEur) && f.priceEur > 0);
 
       return {

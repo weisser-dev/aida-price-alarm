@@ -72,4 +72,16 @@ db.exec(`
   );
 `);
 
+// Lightweight migrations: add columns when missing.
+function ensureColumn(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+ensureColumn('prices', 'with_flight', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('watchlist', 'cabin_filter', 'TEXT'); // CSV "Innen,Balkon" or NULL = any
+ensureColumn('watchlist', 'flight_filter', "TEXT NOT NULL DEFAULT 'any'"); // 'any' | 'with' | 'without'
+
 module.exports = db;

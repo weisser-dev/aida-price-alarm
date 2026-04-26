@@ -109,5 +109,28 @@ dialog menu button[value=default] { background: #003b73; color: white; border-co
 .watchlist-form input { padding: 8px 10px; border: 1px solid #cdd2d8; border-radius: 6px; font: inherit; min-width: 220px; }
 .watchlist-form button { padding: 8px 16px; background: #003b73; color: white; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
 
-.tag { display: inline-block; background: #eef3fa; color: #003b73; border-radius: 999px; font-size: 12px; padding: 2px 8px; }
+.tag { display: inline-block; background: #eef3fa; color: #003b73; border-radius: 999px; font-size: 12px; padding: 2px 8px; margin-left: 4px; }
 .tag.drop { background: #e7f7ec; color: #0a7d32; }
+.tag.warn { background: #fdf3e7; color: #a35900; }
+.tag.err  { background: #fde8e8; color: #b00020; }
+.tag.muted-tag { background: #f1f2f4; color: #586069; }
+
+.filters .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.filters .row:last-child { margin-bottom: 0; }
+.filters label.inline { display: inline-flex; align-items: center; gap: 6px; color: #586069; font-size: 14px; }
+.filters .ghost { background: white; color: #003b73; border: 1px solid #cdd2d8; }
+.filters input[type=date] { padding: 7px 10px; border: 1px solid #cdd2d8; border-radius: 6px; font: inherit; background: white; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; background: white; border: 1px solid #cdd2d8;
+  border-radius: 999px; cursor: pointer; font-size: 14px;
+}
+.chip input { accent-color: #003b73; }
+.chip:has(input:checked) { background: #003b73; color: white; border-color: #003b73; }
+
+dialog fieldset { border: 1px solid #e3e6ea; border-radius: 6px; padding: 10px 12px; }
+dialog fieldset legend { padding: 0 4px; color: #586069; font-size: 13px; }
+dialog .chips { margin-top: 4px; }
+dialog label.inline { display: inline-flex; align-items: center; gap: 6px; margin-right: 12px; }
