@@ -25,9 +25,6 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-AIDA Preisalarm <noreply@example.com>}
-    env_file:
-      - path: .env
-        required: false
     volumes:
       - ./data:/app/data
     networks:

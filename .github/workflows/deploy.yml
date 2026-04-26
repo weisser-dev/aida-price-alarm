@@ -19,10 +19,21 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     env:
+      # Server layout
       DEPLOY_DIR: /opt/aida-price-alarm
       PROJECT: aida-price-alarm
       BACKUP_DIR: /opt/backups/aida
+
+      # App config (non-secret)
       APP_PORT: '3000'
+      APP_BASE_URL: https://aida.weisser.dev
+      USE_MOCK: 'true'
+      AIDA_API_URL: ''
+
+      # SMTP via Strato (non-secret parts)
+      SMTP_HOST: smtp.strato.de
+      SMTP_PORT: '465'
+      SMTP_SECURE: 'true'
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -58,13 +69,24 @@ jobs:
           PROJECT: ${{ env.PROJECT }}
           BACKUP_DIR: ${{ env.BACKUP_DIR }}
           APP_PORT: ${{ env.APP_PORT }}
+          APP_BASE_URL: ${{ env.APP_BASE_URL }}
+          USE_MOCK: ${{ env.USE_MOCK }}
+          AIDA_API_URL: ${{ env.AIDA_API_URL }}
+          SMTP_HOST: ${{ env.SMTP_HOST }}
+          SMTP_PORT: ${{ env.SMTP_PORT }}
+          SMTP_SECURE: ${{ env.SMTP_SECURE }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: DEPLOY_DIR,PROJECT,BACKUP_DIR,APP_PORT
+          envs: DEPLOY_DIR,PROJECT,BACKUP_DIR,APP_PORT,APP_BASE_URL,USE_MOCK,AIDA_API_URL,SMTP_HOST,SMTP_PORT,SMTP_SECURE,SMTP_USER,SMTP_PASS
           script: |
             set -e
+
+            # Strato erfordert From == authentifizierter Benutzer.
+            export SMTP_FROM="AIDA Preisalarm <${SMTP_USER}>"
 
             # ---- SQLite backup (skip if no existing DB) ----
             if [ -f "$DEPLOY_DIR/data/aida.db" ]; then
@@ -91,25 +113,23 @@ jobs:
               ( cd "$DEPLOY_DIR" && sudo docker compose -p "$PROJECT" down --remove-orphans ) || true
             fi
 
-            # ---- Stage out persistent files, replace deploy dir ----
+            # ---- Stage out persistent data, replace deploy dir ----
             STAGING="$(mktemp -d)"
             if [ -d "$DEPLOY_DIR/data" ]; then sudo mv "$DEPLOY_DIR/data" "$STAGING/data"; fi
-            if [ -f "$DEPLOY_DIR/.env" ];  then sudo mv "$DEPLOY_DIR/.env"  "$STAGING/.env"; fi
 
             sudo rm -rf "$DEPLOY_DIR"
             sudo mkdir -p "$DEPLOY_DIR"
             sudo tar xzf /tmp/aida-deploy.tgz -C "$DEPLOY_DIR"
 
             if [ -d "$STAGING/data" ]; then sudo rm -rf "$DEPLOY_DIR/data"; sudo mv "$STAGING/data" "$DEPLOY_DIR/data"; fi
-            if [ -f "$STAGING/.env" ];  then sudo mv "$STAGING/.env" "$DEPLOY_DIR/.env"; fi
             sudo rm -rf "$STAGING"
 
-            # Make data dir writable for the non-root "node" user (uid 1000) inside the container.
+            # data dir muss vom non-root "node" user (uid 1000) im Container schreibbar sein.
             sudo mkdir -p "$DEPLOY_DIR/data"
             sudo chown -R 1000:1000 "$DEPLOY_DIR/data"
 
             cd "$DEPLOY_DIR"
-            sudo -E APP_PORT="$APP_PORT" docker compose -p "$PROJECT" up -d --build --remove-orphans
+            sudo -E docker compose -p "$PROJECT" up -d --build --remove-orphans
 
             sudo docker image prune -f
             echo "Deployment completed successfully!"
