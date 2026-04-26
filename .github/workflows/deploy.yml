@@ -17,28 +17,7 @@ on:
       - '.github/workflows/deploy.yml'
 
 jobs:
-  determine-run:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check.outputs.should_run }}
-    steps:
-      - name: Decide whether to deploy
-        id: check
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const ref = context.ref ?? '';
-            // Skip ephemeral AI work branches; they should be reviewed and merged first.
-            if (ref.startsWith('refs/heads/claude/')) {
-              core.notice('Skipping deploy for claude/* branch.');
-              core.setOutput('should_run', 'false');
-              return;
-            }
-            core.setOutput('should_run', 'true');
-
   build-and-deploy:
-    needs: determine-run
-    if: needs.determine-run.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
