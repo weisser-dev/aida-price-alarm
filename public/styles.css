@@ -1,0 +1,113 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #f6f7f9;
+  color: #1d1f23;
+  line-height: 1.45;
+}
+.topbar {
+  background: #003b73;
+  color: white;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.topbar h1 { font-size: 20px; margin: 0; }
+.topbar nav button {
+  background: transparent;
+  color: white;
+  border: 1px solid rgba(255,255,255,0.4);
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  margin-left: 8px;
+}
+.topbar nav button.active { background: white; color: #003b73; border-color: white; }
+
+main { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+
+.filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.filters input, .filters select {
+  padding: 8px 10px;
+  border: 1px solid #cdd2d8;
+  border-radius: 6px;
+  font: inherit;
+  background: white;
+}
+.filters input[type=search] { flex: 1 1 220px; }
+.filters button {
+  padding: 8px 16px;
+  background: #003b73;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.cards { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+
+.card {
+  background: white;
+  border: 1px solid #e3e6ea;
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.card h3 { margin: 0; font-size: 16px; }
+.card .meta { color: #586069; font-size: 13px; }
+.card .price { display: flex; align-items: baseline; gap: 8px; margin-top: auto; padding-top: 8px; border-top: 1px dashed #e3e6ea; }
+.card .price strong { font-size: 20px; color: #003b73; }
+.card .price small { color: #888; }
+.card .actions { display: flex; gap: 8px; }
+.card .actions a, .card .actions button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid #003b73;
+  text-decoration: none;
+}
+.card .actions a { background: white; color: #003b73; }
+.card .actions button { background: #003b73; color: white; border: 1px solid #003b73; }
+.card .actions button.remove { background: #b00020; border-color: #b00020; }
+
+.muted { color: #586069; }
+.small { font-size: 12px; }
+
+dialog {
+  border: none;
+  border-radius: 10px;
+  padding: 0;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+}
+dialog::backdrop { background: rgba(0,0,0,0.4); }
+dialog form { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+dialog h3 { margin: 0; }
+dialog input[type=email] { padding: 8px; border: 1px solid #cdd2d8; border-radius: 6px; font: inherit; width: 100%; }
+dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; margin: 0; }
+dialog menu button {
+  padding: 8px 14px; border-radius: 6px; border: 1px solid #cdd2d8; background: white; cursor: pointer; font: inherit;
+}
+dialog menu button[value=default] { background: #003b73; color: white; border-color: #003b73; }
+
+.watchlist-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 16px; }
+.watchlist-form input { padding: 8px 10px; border: 1px solid #cdd2d8; border-radius: 6px; font: inherit; min-width: 220px; }
+.watchlist-form button { padding: 8px 16px; background: #003b73; color: white; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
+
+.tag { display: inline-block; background: #eef3fa; color: #003b73; border-radius: 999px; font-size: 12px; padding: 2px 8px; }
+.tag.drop { background: #e7f7ec; color: #0a7d32; }

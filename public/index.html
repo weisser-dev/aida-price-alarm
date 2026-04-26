@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AIDA Preisalarm</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>AIDA Preisalarm</h1>
+    <nav>
+      <button id="nav-cruises" class="active">Reisen</button>
+      <button id="nav-watchlist">Meine Merkliste</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-cruises">
+      <form id="filters" class="filters">
+        <input type="search" name="q" placeholder="Suche nach Reise, Schiff, Region…" />
+        <select name="ship"><option value="">Alle Schiffe</option></select>
+        <select name="destination"><option value="">Alle Ziele</option></select>
+        <button type="submit">Filtern</button>
+      </form>
+      <p id="status-line" class="muted"></p>
+      <ul id="cruise-list" class="cards"></ul>
+    </section>
+
+    <section id="view-watchlist" hidden>
+      <form id="watchlist-form" class="watchlist-form">
+        <label>Deine E-Mail-Adresse:
+          <input type="email" name="email" required placeholder="du@example.com" />
+        </label>
+        <button type="submit">Merkliste anzeigen</button>
+      </form>
+      <ul id="watchlist-list" class="cards"></ul>
+    </section>
+  </main>
+
+  <dialog id="watch-dialog">
+    <form method="dialog" id="watch-form">
+      <h3 id="watch-title">Reise merken</h3>
+      <p id="watch-subtitle" class="muted"></p>
+      <label>Deine E-Mail:
+        <input type="email" name="email" required placeholder="du@example.com" />
+      </label>
+      <p class="muted small">Du erhältst eine E-Mail, sobald der Preis günstiger wird oder neue Tarife verfügbar sind. Abmelden geht jederzeit per Link in jeder Mail.</p>
+      <menu>
+        <button value="cancel" type="reset">Abbrechen</button>
+        <button id="watch-submit" value="default">Merken</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>
