@@ -2,81 +2,94 @@ const crypto = require('crypto');
 const express = require('express');
 const db = require('../db');
 const {
-  bestCurrentFare,
-  parseCabinFilter,
-  serializeCabinFilter,
-} = require('../services/notify');
+  TARIFF_BUCKETS, FLIGHT_OPTIONS,
+  expandBuckets, bestPriceForJourney,
+} = require('../services/pricing');
+const { serializeTariffFilter, parseTariffFilter } = require('../services/notify');
 
 const router = express.Router();
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const FLIGHT_OPTIONS = new Set(['any', 'with', 'without']);
 
 const insertWatch = db.prepare(`
-  INSERT INTO watchlist (email, cruise_id, token, baseline_price, baseline_fare, cabin_filter, flight_filter)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
-  ON CONFLICT(email, cruise_id) DO UPDATE SET
-    baseline_price = excluded.baseline_price,
-    baseline_fare  = excluded.baseline_fare,
-    cabin_filter   = excluded.cabin_filter,
-    flight_filter  = excluded.flight_filter
+  INSERT INTO watchlist (
+    email, watch_type, target_id, token, tariff_filter, flight_filter,
+    baseline_price, baseline_tariff, baseline_journey
+  )
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(email, watch_type, target_id) DO UPDATE SET
+    tariff_filter    = excluded.tariff_filter,
+    flight_filter    = excluded.flight_filter,
+    baseline_price   = excluded.baseline_price,
+    baseline_tariff  = excluded.baseline_tariff,
+    baseline_journey = excluded.baseline_journey
 `);
 
 const findByToken = db.prepare(`SELECT * FROM watchlist WHERE token = ?`);
 const deleteByToken = db.prepare(`DELETE FROM watchlist WHERE token = ?`);
-const listForEmail = db.prepare(`
-  SELECT w.token, w.cruise_id, w.baseline_price, w.baseline_fare,
-         w.cabin_filter, w.flight_filter, w.created_at,
-         c.title, c.ship, c.destination, c.departs_at, c.returns_at,
-         c.duration_nights, c.url
-  FROM watchlist w
-  JOIN cruises c ON c.id = w.cruise_id
-  WHERE w.email = ?
-  ORDER BY c.departs_at ASC
-`);
-const cruiseStmt = db.prepare(`SELECT id FROM cruises WHERE id = ?`);
+
+const listForEmail = db.prepare(`SELECT * FROM watchlist WHERE email = ? ORDER BY created_at DESC`);
+const routeStmt = db.prepare(`SELECT * FROM routes WHERE id = ?`);
+const journeyStmt = db.prepare(`SELECT j.*, r.title AS route_title, r.ship_name, r.region FROM journeys j JOIN routes r ON r.id = j.route_id WHERE j.id = ?`);
 
 router.post('/', (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
-  const cruiseId = String(req.body?.cruiseId || '').trim();
-  const cabinTypes = Array.isArray(req.body?.cabinTypes)
-    ? req.body.cabinTypes
-    : (req.body?.cabinTypes ? String(req.body.cabinTypes).split(',') : null);
-  const cabinFilter = serializeCabinFilter(cabinTypes);
-  const flightFilter = FLIGHT_OPTIONS.has(req.body?.flightOption) ? req.body.flightOption : 'any';
+  const watchType = String(req.body?.watchType || 'route');
+  const targetId = String(req.body?.targetId || '').trim();
+  const tariffBuckets = Array.isArray(req.body?.tariffBuckets)
+    ? req.body.tariffBuckets
+    : (req.body?.tariffBuckets ? String(req.body.tariffBuckets).split(',') : null);
+  const tariffFilter = serializeTariffFilter(tariffBuckets);
+  const flightFilter = FLIGHT_OPTIONS.includes(req.body?.flightOption) ? req.body.flightOption : 'any';
 
   if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'invalid_email' });
-  if (!cruiseId) return res.status(400).json({ error: 'invalid_cruise' });
-  if (!cruiseStmt.get(cruiseId)) return res.status(404).json({ error: 'cruise_not_found' });
+  if (!['route', 'journey'].includes(watchType)) return res.status(400).json({ error: 'invalid_watch_type' });
+  if (!targetId) return res.status(400).json({ error: 'invalid_target' });
 
-  const best = bestCurrentFare(cruiseId, {
-    cabinTypes: parseCabinFilter(cabinFilter),
-    flightOption: flightFilter,
-  });
+  let exists, journeysOfTarget;
+  if (watchType === 'route') {
+    exists = !!routeStmt.get(targetId);
+    journeysOfTarget = exists ? db.prepare(`SELECT id FROM journeys WHERE route_id = ?`).all(targetId).map((j) => j.id) : [];
+  } else {
+    const j = journeyStmt.get(targetId);
+    exists = !!j;
+    journeysOfTarget = exists ? [targetId] : [];
+  }
+  if (!exists) return res.status(404).json({ error: 'target_not_found' });
+
+  const tariffs = expandBuckets(tariffFilter);
+  let best = null, bestJourneyId = null;
+  for (const jid of journeysOfTarget) {
+    const cand = bestPriceForJourney(jid, { tariffs, flightOption: flightFilter });
+    if (!cand) continue;
+    if (!best || cand.amount_eur < best.amount_eur) {
+      best = cand;
+      bestJourneyId = jid;
+    }
+  }
 
   const token = crypto.randomBytes(18).toString('base64url');
-
   insertWatch.run(
-    email,
-    cruiseId,
-    token,
-    best ? best.price_eur : null,
-    best ? best.fare_code : null,
-    cabinFilter,
-    flightFilter,
+    email, watchType, targetId, token, tariffFilter, flightFilter,
+    best ? best.amount_eur : null,
+    best ? best.tariff_type : null,
+    bestJourneyId,
   );
 
   res.status(201).json({
     ok: true,
     token,
+    watchType,
+    targetId,
     baseline: best ? {
-      price: best.price_eur,
-      fare: best.fare_code,
-      cabin: best.cabin_type,
-      withFlight: !!best.with_flight,
+      amountEur: best.amount_eur,
+      perPersonEur: best.per_person_eur,
+      tariffType: best.tariff_type,
+      tariffName: best.tariff_name,
+      flightIncluded: !!best.flight_included,
+      journeyId: bestJourneyId,
     } : null,
     filters: {
-      cabinTypes: parseCabinFilter(cabinFilter),
+      tariffBuckets: parseTariffFilter(tariffFilter),
       flightOption: flightFilter,
     },
   });
@@ -86,33 +99,71 @@ router.get('/', (req, res) => {
   const email = String(req.query.email || '').trim().toLowerCase();
   if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'invalid_email' });
 
-  const rows = listForEmail.all(email).map((r) => {
-    const cabinTypes = parseCabinFilter(r.cabin_filter);
-    const flightOption = r.flight_filter || 'any';
-    const best = bestCurrentFare(r.cruise_id, { cabinTypes, flightOption });
+  const rows = listForEmail.all(email);
+  const items = rows.map((w) => {
+    const tariffs = expandBuckets(w.tariff_filter);
+    const flightOption = w.flight_filter || 'any';
+
+    let route, journey, journeyIds;
+    if (w.watch_type === 'route') {
+      route = routeStmt.get(w.target_id);
+      journeyIds = db.prepare(`SELECT id FROM journeys WHERE route_id = ?`).all(w.target_id).map((r) => r.id);
+    } else {
+      journey = journeyStmt.get(w.target_id);
+      route = journey ? routeStmt.get(journey.route_id) : null;
+      journeyIds = journey ? [journey.id] : [];
+    }
+    if (!route) return null;
+
+    let best = null, bestJourneyId = null;
+    for (const jid of journeyIds) {
+      const cand = bestPriceForJourney(jid, { tariffs, flightOption });
+      if (!cand) continue;
+      if (!best || cand.amount_eur < best.amount_eur) {
+        best = cand;
+        bestJourneyId = jid;
+      }
+    }
+
     return {
-      token: r.token,
-      cruiseId: r.cruise_id,
-      title: r.title,
-      ship: r.ship,
-      destination: r.destination,
-      departsAt: r.departs_at,
-      returnsAt: r.returns_at,
-      durationNights: r.duration_nights,
-      url: r.url,
-      filters: { cabinTypes, flightOption },
-      baseline: { price: r.baseline_price, fare: r.baseline_fare },
+      token: w.token,
+      watchType: w.watch_type,
+      targetId: w.target_id,
+      route: {
+        id: route.id,
+        title: route.title,
+        ship: route.ship_name,
+        region: route.region,
+        departurePort: route.departure_port,
+        arrivalPort: route.arrival_port,
+      },
+      journey: journey ? {
+        id: journey.id,
+        departsAt: journey.departs_at,
+        returnsAt: journey.returns_at,
+        durationNights: journey.duration_nights,
+      } : null,
+      filters: {
+        tariffBuckets: parseTariffFilter(w.tariff_filter),
+        flightOption,
+      },
+      baseline: {
+        amountEur: w.baseline_price,
+        tariffType: w.baseline_tariff,
+        journeyId: w.baseline_journey,
+      },
       currentBest: best ? {
-        code: best.fare_code,
-        name: best.fare_name,
-        cabinType: best.cabin_type,
-        priceEur: best.price_eur,
-        withFlight: !!best.with_flight,
+        amountEur: best.amount_eur,
+        perPersonEur: best.per_person_eur,
+        tariffType: best.tariff_type,
+        tariffName: best.tariff_name,
+        flightIncluded: !!best.flight_included,
+        journeyId: bestJourneyId,
       } : null,
     };
-  });
+  }).filter(Boolean);
 
-  res.json({ email, items: rows });
+  res.json({ email, items });
 });
 
 router.delete('/:token', (req, res) => {

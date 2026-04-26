@@ -27,7 +27,7 @@ jobs:
       # App config (non-secret)
       APP_PORT: '3000'
       APP_BASE_URL: https://aida.weisser.dev
-      USE_MOCK: 'true'
+      USE_MOCK: 'false'
       AIDA_API_URL: ''
 
       # SMTP via Strato (non-secret parts)

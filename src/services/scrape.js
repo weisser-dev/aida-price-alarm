@@ -1,81 +1,151 @@
 const db = require('../db');
-const { fetchCruises } = require('./aidaAdapter');
+const { fetchCatalog } = require('./aidaAdapter');
 const { findAlerts, sendAlertsForWatchers } = require('./notify');
 
-const upsertCruise = db.prepare(`
-  INSERT INTO cruises (id, title, ship, destination, departure_port, arrival_port,
-                       departs_at, returns_at, duration_nights, url, raw_json, updated_at)
-  VALUES (@id, @title, @ship, @destination, @departurePort, @arrivalPort,
-          @departsAt, @returnsAt, @durationNights, @url, @rawJson, datetime('now'))
+const upsertRoute = db.prepare(`
+  INSERT INTO routes (
+    id, route_code, yield_code, route_group, title,
+    ship_code, ship_name, region, departure_port, arrival_port,
+    duration_nights, ports_json, image_url, updated_at
+  )
+  VALUES (
+    @id, @routeCode, @yieldCode, @routeGroup, @title,
+    @shipCode, @shipName, @region, @departurePort, @arrivalPort,
+    @durationNights, @portsJson, @imageUrl, datetime('now')
+  )
   ON CONFLICT(id) DO UPDATE SET
+    route_code      = excluded.route_code,
+    yield_code      = excluded.yield_code,
+    route_group     = excluded.route_group,
     title           = excluded.title,
-    ship            = excluded.ship,
-    destination     = excluded.destination,
+    ship_code       = excluded.ship_code,
+    ship_name       = excluded.ship_name,
+    region          = excluded.region,
     departure_port  = excluded.departure_port,
     arrival_port    = excluded.arrival_port,
+    duration_nights = excluded.duration_nights,
+    ports_json      = excluded.ports_json,
+    image_url       = excluded.image_url,
+    updated_at      = datetime('now')
+`);
+
+const upsertJourney = db.prepare(`
+  INSERT INTO journeys (
+    id, route_id, ship_code, duration_nights, departs_at, returns_at,
+    booking_url, image_url, updated_at
+  )
+  VALUES (
+    @id, @routeId, @shipCode, @durationNights, @departsAt, @returnsAt,
+    @bookingUrl, @imageUrl, datetime('now')
+  )
+  ON CONFLICT(id) DO UPDATE SET
+    route_id        = excluded.route_id,
+    ship_code       = excluded.ship_code,
+    duration_nights = excluded.duration_nights,
     departs_at      = excluded.departs_at,
     returns_at      = excluded.returns_at,
-    duration_nights = excluded.duration_nights,
-    url             = excluded.url,
-    raw_json        = excluded.raw_json,
+    booking_url     = excluded.booking_url,
+    image_url       = excluded.image_url,
     updated_at      = datetime('now')
 `);
 
 const insertPrice = db.prepare(`
-  INSERT INTO prices (cruise_id, fare_code, fare_name, cabin_type, price_eur, currency, with_flight)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO prices (journey_id, tariff_type, tariff_name, flight_included,
+                      amount_eur, per_person_eur, currency, notes_json)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-const startRun = db.prepare(`
-  INSERT INTO scrape_runs (status) VALUES ('running')
+const upsertCampaign = db.prepare(`
+  INSERT INTO campaigns (journey_id, code, name, medium, valid_from, valid_to)
+  VALUES (?, ?, ?, ?, ?, ?)
 `);
+const deleteOldCampaigns = db.prepare(`
+  DELETE FROM campaigns WHERE journey_id = ?
+`);
+
+const startRun = db.prepare(`INSERT INTO scrape_runs (status) VALUES ('running')`);
 const finishRun = db.prepare(`
-  UPDATE scrape_runs SET finished_at = datetime('now'), status = ?, cruises_seen = ?, prices_seen = ?, error = ?
-  WHERE id = ?
+  UPDATE scrape_runs
+     SET finished_at = datetime('now'), status = ?,
+         routes_seen = ?, journeys_seen = ?, prices_seen = ?, campaigns_seen = ?, error = ?
+   WHERE id = ?
 `);
 
 async function runScrape({ notify = true, log = console } = {}) {
   const runInfo = startRun.run();
   const runId = runInfo.lastInsertRowid;
 
-  let cruises = [];
+  let routes;
   try {
-    cruises = await fetchCruises();
+    routes = await fetchCatalog({ log });
   } catch (err) {
-    finishRun.run('error', 0, 0, String(err && err.message || err), runId);
+    finishRun.run('error', 0, 0, 0, 0, String(err && err.message || err), runId);
     throw err;
   }
 
-  let priceCount = 0;
+  let journeyCount = 0, priceCount = 0, campaignCount = 0;
+
   const persist = db.transaction((items) => {
-    for (const c of items) {
-      upsertCruise.run({
-        id: c.id,
-        title: c.title,
-        ship: c.ship,
-        destination: c.destination,
-        departurePort: c.departurePort,
-        arrivalPort: c.arrivalPort,
-        departsAt: c.departsAt,
-        returnsAt: c.returnsAt,
-        durationNights: c.durationNights,
-        url: c.url,
-        rawJson: c.raw ? JSON.stringify(c.raw) : null,
+    for (const r of items) {
+      upsertRoute.run({
+        id: r.id,
+        routeCode: r.routeCode || null,
+        yieldCode: r.yieldCode || null,
+        routeGroup: r.routeGroup || null,
+        title: r.title,
+        shipCode: r.shipCode || null,
+        shipName: r.shipName || null,
+        region: r.region || null,
+        departurePort: r.departurePort || null,
+        arrivalPort: r.arrivalPort || null,
+        durationNights: r.durationNights ?? null,
+        portsJson: r.portsJson || null,
+        imageUrl: r.imageUrl || null,
       });
 
-      for (const f of c.fares) {
-        insertPrice.run(
-          c.id, f.code, f.name, f.cabinType, f.priceEur,
-          f.currency || 'EUR', f.withFlight ? 1 : 0,
-        );
-        priceCount += 1;
+      for (const j of r.journeys) {
+        upsertJourney.run({
+          id: j.id,
+          routeId: r.id,
+          shipCode: j.shipCode || r.shipCode || null,
+          durationNights: j.durationNights ?? r.durationNights ?? null,
+          departsAt: j.departsAt,
+          returnsAt: j.returnsAt,
+          bookingUrl: j.bookingUrl || null,
+          imageUrl: j.imageUrl || null,
+        });
+        journeyCount += 1;
+
+        for (const p of j.prices) {
+          insertPrice.run(
+            j.id,
+            p.tariffType,
+            p.tariffName || null,
+            p.flightIncluded ? 1 : 0,
+            p.amountEur,
+            p.perPersonEur ?? null,
+            p.currency || '€',
+            p.notes && p.notes.length ? JSON.stringify(p.notes) : null,
+          );
+          priceCount += 1;
+        }
+
+        // Refresh campaigns per journey: replace with latest set
+        if (j.campaigns && j.campaigns.length) {
+          deleteOldCampaigns.run(j.id);
+          for (const c of j.campaigns) {
+            upsertCampaign.run(j.id, c.code, c.name || null, c.medium || null,
+              c.validFrom || null, c.validTo || null);
+            campaignCount += 1;
+          }
+        }
       }
     }
   });
-  persist(cruises);
+  persist(routes);
 
-  finishRun.run('ok', cruises.length, priceCount, null, runId);
-  log.info?.(`[scrape] persisted ${cruises.length} cruises / ${priceCount} fares`);
+  finishRun.run('ok', routes.length, journeyCount, priceCount, campaignCount, null, runId);
+  log.info?.(`[scrape] persisted ${routes.length} routes / ${journeyCount} journeys / ${priceCount} prices / ${campaignCount} campaigns`);
 
   if (notify) {
     const alerts = findAlerts();
@@ -85,7 +155,12 @@ async function runScrape({ notify = true, log = console } = {}) {
     }
   }
 
-  return { cruises: cruises.length, prices: priceCount };
+  return {
+    routes: routes.length,
+    journeys: journeyCount,
+    prices: priceCount,
+    campaigns: campaignCount,
+  };
 }
 
 module.exports = { runScrape };

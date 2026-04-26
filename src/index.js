@@ -5,24 +5,28 @@ const cron = require('node-cron');
 const config = require('./config');
 require('./db'); // ensure schema exists
 
-const cruisesRouter = require('./routes/cruises');
+const routesRouter = require('./routes/routes');
 const watchlistRouter = require('./routes/watchlist');
+const campaignsRouter = require('./routes/campaigns');
 const { runScrape } = require('./services/scrape');
 const db = require('./db');
 
 const app = express();
 app.use(express.json({ limit: '128kb' }));
 
-app.use('/api/cruises', cruisesRouter);
+app.use('/api/routes', routesRouter);
 app.use('/api/watch', watchlistRouter);
+app.use('/api/campaigns', campaignsRouter);
 
 app.get('/api/status', (_req, res) => {
   const lastRun = db.prepare(`SELECT * FROM scrape_runs ORDER BY id DESC LIMIT 1`).get();
   const counts = db.prepare(`
     SELECT
-      (SELECT COUNT(*) FROM cruises) AS cruises,
-      (SELECT COUNT(*) FROM watchlist) AS watchers,
-      (SELECT COUNT(*) FROM prices) AS prices
+      (SELECT COUNT(*) FROM routes)    AS routes,
+      (SELECT COUNT(*) FROM journeys)  AS journeys,
+      (SELECT COUNT(*) FROM prices)    AS prices,
+      (SELECT COUNT(*) FROM campaigns) AS campaigns,
+      (SELECT COUNT(*) FROM watchlist) AS watchers
   `).get();
   res.json({
     ok: true,
@@ -63,7 +67,6 @@ const server = app.listen(config.port, () => {
   console.log(`[server] mock mode: ${config.scrape.useMock}`);
 });
 
-// Daily scrape via cron
 if (cron.validate(config.scrape.cron)) {
   cron.schedule(config.scrape.cron, async () => {
     console.log(`[cron] running daily scrape (${new Date().toISOString()})`);
@@ -78,9 +81,8 @@ if (cron.validate(config.scrape.cron)) {
   console.warn(`[cron] invalid expression "${config.scrape.cron}", scheduler disabled`);
 }
 
-// Trigger an initial scrape on first ever boot so the UI isn't empty.
-const totalCruises = db.prepare(`SELECT COUNT(*) AS n FROM cruises`).get().n;
-if (totalCruises === 0) {
+const totalRoutes = db.prepare(`SELECT COUNT(*) AS n FROM routes`).get().n;
+if (totalRoutes === 0) {
   console.log('[boot] empty database, running initial scrape...');
   runScrape({ notify: false }).catch((err) => console.error('[boot] initial scrape failed', err));
 }
