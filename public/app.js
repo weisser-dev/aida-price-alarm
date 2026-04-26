@@ -21,6 +21,44 @@ const flightChip = (included) => included
 
 let availableTariffs = [];
 
+// Collapses multiple AIDA tariff codes that belong to the same family
+// (e.g. CLA + CLAAI both shown as "CLASSIC") and pairs the with-flight
+// and without-flight price for each family on a single row.
+const TARIFF_FAMILY = {
+  LIG: 'LIGHT',
+  CLA: 'CLASSIC',   CLAAI: 'CLASSIC',
+  IND: 'PREMIUM',   INDAI: 'PREMIUM',
+  COMAI: 'COMFORT ALL IN',
+  PAU: 'PAUSCHAL',  PAUAI: 'PAUSCHAL',
+  SEE: 'SEETOURS',  SEEAI: 'SEETOURS',
+};
+const TARIFF_FAMILY_ORDER = ['LIGHT', 'CLASSIC', 'COMFORT ALL IN', 'PREMIUM', 'PAUSCHAL', 'SEETOURS'];
+
+function groupPricesByTariff(prices) {
+  const map = new Map();
+  for (const p of prices || []) {
+    const family = TARIFF_FAMILY[p.tariffType] || p.tariffName || p.tariffType;
+    if (!map.has(family)) map.set(family, { family, withFlight: null, withoutFlight: null, ai: false });
+    const entry = map.get(family);
+    if (/AI$/.test(p.tariffType)) entry.ai = true;
+    const slot = p.flightIncluded ? 'withFlight' : 'withoutFlight';
+    if (!entry[slot] || p.amountEur < entry[slot].amountEur) entry[slot] = p;
+  }
+  return [...map.values()].sort((a, b) =>
+    TARIFF_FAMILY_ORDER.indexOf(a.family) - TARIFF_FAMILY_ORDER.indexOf(b.family));
+}
+
+function renderPriceRow(g) {
+  const cell = (p) => p
+    ? `<strong>${eur(p.amountEur)}</strong>${p.perPersonEur ? ` <small>${eur(p.perPersonEur)} p.P.</small>` : ''}`
+    : '<span class="muted">–</span>';
+  return `<tr>
+    <td>${escapeHtml(g.family)}${g.ai ? ' <span class="tag muted-ai">All In verfügbar</span>' : ''}</td>
+    <td>${cell(g.withoutFlight)}</td>
+    <td>${cell(g.withFlight)}</td>
+  </tr>`;
+}
+
 // --- Navigation ---------------------------------------------------------
 const views = {
   routes: document.getElementById('view-routes'),
@@ -158,10 +196,11 @@ function renderRouteDetail(r) {
 
   const journeysHtml = r.journeys.map((j) => {
     const cheapest = j.cheapestForFilter;
-    const allPrices = j.latestPrices.sort((x, y) => x.amountEur - y.amountEur);
     const camps = j.activeCampaigns?.length
       ? j.activeCampaigns.map((c) => `<span class="tag campaign">${escapeHtml(c.name || c.code)}${c.validTo ? ` bis ${fmtDate(c.validTo)}` : ''}</span>`).join('')
       : '';
+    const grouped = groupPricesByTariff(j.latestPrices);
+    const groupCount = grouped.length;
     return `
       <li class="journey">
         <div class="journey-head">
@@ -174,18 +213,13 @@ function renderRouteDetail(r) {
           </div>
         </div>
         ${camps ? `<div class="campaigns">${camps}</div>` : ''}
-        <details class="prices-detail">
-          <summary>${allPrices.length} Tarif-Variante${allPrices.length === 1 ? '' : 'n'} verfügbar</summary>
-          <ul class="price-list">
-            ${allPrices.map((p) => `
-              <li>
-                <span>${escapeHtml(p.tariffName || p.tariffType)}</span>
-                ${flightChip(p.flightIncluded)}
-                <span><strong>${eur(p.amountEur)}</strong>${p.perPersonEur ? ` <small>(${eur(p.perPersonEur)} p.P.)</small>` : ''}</span>
-              </li>
-            `).join('')}
-          </ul>
-        </details>
+        ${groupCount ? `<details class="prices-detail">
+          <summary>${groupCount} Tarif${groupCount === 1 ? '' : 'e'} – günstigster pro Tarif anzeigen</summary>
+          <table class="price-table">
+            <thead><tr><th>Tarif</th><th>ohne Flug</th><th>inkl. Flug</th></tr></thead>
+            <tbody>${grouped.map(renderPriceRow).join('')}</tbody>
+          </table>
+        </details>` : ''}
         <div class="actions">
           ${j.bookingUrl ? `<a href="${escapeHtml(j.bookingUrl)}" target="_blank" rel="noopener">Auf aida.de buchen</a>` : ''}
           <button data-watch-journey="${escapeHtml(j.id)}" data-subtitle="${escapeHtml(`${fmtDate(j.departsAt)} – ${fmtDate(j.returnsAt)}`)}">Diese Abfahrt merken</button>

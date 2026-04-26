@@ -110,13 +110,21 @@ async function runScrape({ notify = true, log = console } = {}) {
           shipCode: j.shipCode || r.shipCode || null,
           durationNights: j.durationNights ?? r.durationNights ?? null,
           departsAt: j.departsAt,
-          returnsAt: j.returnsAt,
+          returnsAt: j.returns_at || j.returnsAt,
           bookingUrl: j.bookingUrl || null,
           imageUrl: j.imageUrl || null,
         });
         journeyCount += 1;
 
-        for (const p of j.prices) {
+        // Defence-in-depth dedup: the adapter already collapses by
+        // (tariff, flight) but mock + future adapters could repeat.
+        const seen = new Map();
+        for (const p of (j.prices || [])) {
+          const key = `${p.tariffType}|${p.flightIncluded ? 1 : 0}`;
+          const prev = seen.get(key);
+          if (!prev || p.amountEur < prev.amountEur) seen.set(key, p);
+        }
+        for (const p of seen.values()) {
           insertPrice.run(
             j.id,
             p.tariffType,
@@ -130,14 +138,16 @@ async function runScrape({ notify = true, log = console } = {}) {
           priceCount += 1;
         }
 
-        // Refresh campaigns per journey: replace with latest set
-        if (j.campaigns && j.campaigns.length) {
-          deleteOldCampaigns.run(j.id);
-          for (const c of j.campaigns) {
-            upsertCampaign.run(j.id, c.code, c.name || null, c.medium || null,
-              c.validFrom || null, c.validTo || null);
-            campaignCount += 1;
-          }
+        // Always reset campaigns for journeys we just upserted, so stale
+        // entries from yesterday don't linger when AIDA drops them today.
+        deleteOldCampaigns.run(j.id);
+        const seenCampaigns = new Set();
+        for (const c of (j.campaigns || [])) {
+          if (seenCampaigns.has(c.code)) continue;
+          seenCampaigns.add(c.code);
+          upsertCampaign.run(j.id, c.code, c.name || null, c.medium || null,
+            c.validFrom || null, c.validTo || null);
+          campaignCount += 1;
         }
       }
     }

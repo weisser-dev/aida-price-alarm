@@ -11,6 +11,24 @@ const REGIONS = [
   'VRDU', 'VROS', 'VRTR', 'VRWR', 'VRWE', 'VRWM', 'VROM',
 ];
 
+const REGION_NAMES = {
+  VRAD: 'Adria',
+  VRAF: 'Afrika',
+  VRAS: 'Asien',
+  VRIO: 'Indischer Ozean',
+  VRKA: 'Kanaren',
+  VRKM: 'Karibik',
+  VRNA: 'Nordamerika',
+  VRNE: 'Nordeuropa',
+  VRDU: 'Orient',
+  VROS: 'Ostsee',
+  VRTR: 'Transreisen',
+  VRWR: 'Weltreise',
+  VRWE: 'Westeuropa',
+  VRWM: 'westliches Mittelmeer',
+  VROM: 'östliches Mittelmeer',
+};
+
 const TARIFF_NAMES = {
   LIG:   'LIGHT',
   CLA:   'CLASSIC',
@@ -94,7 +112,8 @@ async function fetchAllRoutes({ adults = 2, log = console, pauseMs = 700 } = {})
       });
       totalPages = Number(data.totalPages || 1);
       const items = Array.isArray(data.cruiseItems) ? data.cruiseItems : [];
-      for (const item of items) accumulateRoute(merged, item, region);
+      const regionName = REGION_NAMES[region] || region;
+      for (const item of items) accumulateRoute(merged, item, regionName);
       log.info?.(`[scrape] region=${region} page=${page}/${totalPages} items=${items.length}`);
       page += 1;
       await sleep(pauseMs);
@@ -155,25 +174,36 @@ function accumulateRoute(map, item, regionName) {
         returnsAt: v.endDate || item.endDate || null,
         bookingUrl: v.bookingLink ? `${BASE}${v.bookingLink}` : null,
         imageUrl: v.imageUrl || null,
-        prices: [],
-        campaigns: [],
+        // Maps so the same (tariff, flight) / campaign code from multiple
+        // pages collapses into a single row.
+        prices: new Map(),
+        campaigns: new Map(),
       };
       route.journeys.set(jid, journey);
     }
 
-    journey.prices.push({
-      tariffType: v.tariffType || 'IND',
-      tariffName: TARIFF_NAMES[v.tariffType] || v.tariffType || null,
-      flightIncluded: !!v.flightIncluded,
-      amountEur: amount,
-      perPersonEur: Number.isFinite(perPerson) ? perPerson : Math.round(amount / 2),
-      currency: v.currency || '€',
-      notes: Array.isArray(v.notes) ? v.notes : [],
-    });
+    const tariffType = v.tariffType || 'IND';
+    const flightIncluded = !!v.flightIncluded;
+    const priceKey = `${tariffType}|${flightIncluded ? 1 : 0}`;
+    const existing = journey.prices.get(priceKey);
+    // Keep the cheapest price seen for the (tariff, flight) combo - AIDA
+    // sometimes returns slightly different amounts per page; the lowest
+    // matches what the user would actually book.
+    if (!existing || amount < existing.amountEur) {
+      journey.prices.set(priceKey, {
+        tariffType,
+        tariffName: TARIFF_NAMES[tariffType] || tariffType || null,
+        flightIncluded,
+        amountEur: amount,
+        perPersonEur: Number.isFinite(perPerson) ? perPerson : Math.round(amount / 2),
+        currency: v.currency || '€',
+        notes: Array.isArray(v.notes) ? v.notes : [],
+      });
+    }
 
     for (const c of (v.campaigns || [])) {
       if (!c.code) continue;
-      journey.campaigns.push({
+      journey.campaigns.set(c.code, {
         code: c.code,
         name: c.name || null,
         medium: c.medium || null,
@@ -190,10 +220,14 @@ async function fetchCatalog(options = {}) {
     return mockData.generate();
   }
   const routes = await fetchAllRoutes(options);
-  // Each Map -> array, ready for persistence.
+  // Flatten the Maps used for dedup into the arrays the persistence layer expects.
   return routes.map((r) => ({
     ...r,
-    journeys: [...r.journeys.values()],
+    journeys: [...r.journeys.values()].map((j) => ({
+      ...j,
+      prices: [...j.prices.values()],
+      campaigns: [...j.campaigns.values()],
+    })),
   }));
 }
 

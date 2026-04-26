@@ -33,19 +33,17 @@ function bucketForTariff(tariffCode) {
   return tariffCode || null;
 }
 
+// Use MAX(id) instead of MAX(captured_at) so multiple inserts within the
+// same second (one transaction) collapse to a single row.
 const latestPricesPerJourney = db.prepare(`
   SELECT p.tariff_type, p.tariff_name, p.flight_included, p.amount_eur, p.per_person_eur, p.captured_at
   FROM prices p
-  JOIN (
-    SELECT tariff_type, flight_included, MAX(captured_at) AS captured_at
-    FROM prices
-    WHERE journey_id = ?
-    GROUP BY tariff_type, flight_included
-  ) latest
-    ON latest.tariff_type     = p.tariff_type
-   AND latest.flight_included = p.flight_included
-   AND latest.captured_at     = p.captured_at
   WHERE p.journey_id = ?
+    AND p.id IN (
+      SELECT MAX(id) FROM prices
+      WHERE journey_id = ?
+      GROUP BY tariff_type, flight_included
+    )
 `);
 
 function filterPriceRows(rows, { tariffs, flightOption }) {

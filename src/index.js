@@ -82,7 +82,8 @@ if (cron.validate(config.scrape.cron)) {
 }
 
 const totalRoutes = db.prepare(`SELECT COUNT(*) AS n FROM routes`).get().n;
-if (totalRoutes === 0) {
+const totalPrices = db.prepare(`SELECT COUNT(*) AS n FROM prices`).get().n;
+if (totalRoutes === 0 || totalPrices === 0) {
   console.log('[boot] empty database, running initial scrape...');
   runScrape({ notify: false }).catch((err) => console.error('[boot] initial scrape failed', err));
 }

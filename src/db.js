@@ -123,4 +123,18 @@ db.exec(`
   );
 `);
 
+// One-shot migrations keyed off PRAGMA user_version.
+const userVersion = db.pragma('user_version', { simple: true });
+
+if (userVersion < 1) {
+  // Earlier scrapes inserted the same (journey, tariff, flight) row up to a
+  // dozen times per run because AIDA returns each journey across multiple
+  // pages. Wipe the polluted history and let the next scrape repopulate.
+  const before = db.prepare('SELECT COUNT(*) AS n FROM prices').get().n;
+  const beforeC = db.prepare('SELECT COUNT(*) AS n FROM campaigns').get().n;
+  db.exec(`DELETE FROM prices; DELETE FROM campaigns;`);
+  console.log(`[migration v1] cleared ${before} duplicated price rows and ${beforeC} campaign rows`);
+  db.pragma('user_version = 1');
+}
+
 module.exports = db;
