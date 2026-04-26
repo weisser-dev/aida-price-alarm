@@ -96,11 +96,30 @@ Der Workflow `.github/workflows/deploy.yml` ist an das aus dem Beispiel angelehn
 
 ```bash
 sudo mkdir -p /opt/aida-price-alarm/{prod,dev} /opt/backups/aida
+# Caddy-Netz muss existieren und extern markiert sein:
+docker network inspect caddy-net >/dev/null 2>&1 || docker network create caddy-net
 # SMTP- und Live-API-Konfig anlegen (optional, sonst Mock + Mail-Log auf stdout):
 sudo vi /opt/aida-price-alarm/prod/.env
 ```
 
 Beim ersten Deploy wird das Compose-Stack gebaut, ein leeres Volume `data/` angelegt und die App startet im Mock-Modus, sofern die `.env` keinen Live-Endpoint setzt.
+
+### Caddy
+
+Der Container exponiert nur intern Port 3000 und hängt im externen Netz `caddy-net`. Der Container-Name ist deterministisch (`aida-price-alarm-prod` bzw. `aida-price-alarm-dev`), sodass Caddy direkt darauf proxen kann:
+
+```caddy
+aida.weisser.dev {
+    reverse_proxy aida-price-alarm-prod:3000
+    encode gzip zstd
+}
+
+# optional, parallel das Dev-Stack:
+aida-dev.weisser.dev {
+    reverse_proxy aida-price-alarm-dev:3000
+    encode gzip zstd
+}
+```
 
 ## Hinweis zum Scraping
 

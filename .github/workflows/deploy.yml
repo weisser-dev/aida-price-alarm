@@ -53,7 +53,6 @@ jobs:
             echo "deploy_dir=/opt/aida-price-alarm/prod"          >> "$GITHUB_OUTPUT"
             echo "project=aida-price-alarm-prod"                  >> "$GITHUB_OUTPUT"
             echo "app_port_value=3000"                            >> "$GITHUB_OUTPUT"
-            echo "host_port_value=3000"                           >> "$GITHUB_OUTPUT"
             echo "backup_dir=/opt/backups/aida"                   >> "$GITHUB_OUTPUT"
             echo "needs_backup=true"                              >> "$GITHUB_OUTPUT"
           else
@@ -62,7 +61,6 @@ jobs:
             echo "deploy_dir=/opt/aida-price-alarm/dev"           >> "$GITHUB_OUTPUT"
             echo "project=aida-price-alarm-dev"                   >> "$GITHUB_OUTPUT"
             echo "app_port_value=3000"                            >> "$GITHUB_OUTPUT"
-            echo "host_port_value=3001"                           >> "$GITHUB_OUTPUT"
             echo "backup_dir=/opt/backups/aida"                   >> "$GITHUB_OUTPUT"
             echo "needs_backup=false"                             >> "$GITHUB_OUTPUT"
           fi
@@ -105,7 +103,6 @@ jobs:
             PROJECT='${{ steps.target.outputs.project }}'
             PROFILE='${{ steps.target.outputs.profile }}'
             export APP_PORT='${{ steps.target.outputs.app_port_value }}'
-            export HOST_PORT='${{ steps.target.outputs.host_port_value }}'
             export PROFILE
 
             sudo mkdir -p "$DEPLOY_DIR"
@@ -147,7 +144,6 @@ jobs:
             PROFILE='${{ steps.target.outputs.profile }}'
             BACKUP_DIR='${{ steps.target.outputs.backup_dir }}'
             export APP_PORT='${{ steps.target.outputs.app_port_value }}'
-            export HOST_PORT='${{ steps.target.outputs.host_port_value }}'
             export PROFILE
 
             # ---- SQLite backup (skip if no existing DB) ----

@@ -5,9 +5,13 @@ services:
       context: .
       dockerfile: Dockerfile
     image: aida-price-alarm:${PROFILE:-prod}
+    container_name: aida-price-alarm-${PROFILE:-prod}
     restart: unless-stopped
-    ports:
-      - "${HOST_PORT:-3000}:${APP_PORT:-3000}"
+    # Kein Host-Port-Mapping: Caddy spricht den Container intern über
+    # caddy-net an. Für lokale Tests in einer docker-compose.override.yml
+    # ergänzen.
+    expose:
+      - "${APP_PORT:-3000}"
     environment:
       PORT: ${APP_PORT:-3000}
       APP_BASE_URL: ${APP_BASE_URL:-}
@@ -27,9 +31,18 @@ services:
         required: false
     volumes:
       - ./data:/app/data
+    networks:
+      - aida-net
+      - caddy-net
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:${APP_PORT:-3000}/api/status"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 20s
+
+networks:
+  aida-net:
+    driver: bridge
+  caddy-net:
+    external: true
