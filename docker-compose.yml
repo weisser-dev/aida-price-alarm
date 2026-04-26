@@ -1,0 +1,35 @@
+services:
+  aida-app:
+    profiles: [prod, dev]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aida-price-alarm:${PROFILE:-prod}
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-3000}:${APP_PORT:-3000}"
+    environment:
+      PORT: ${APP_PORT:-3000}
+      APP_BASE_URL: ${APP_BASE_URL:-}
+      DATABASE_PATH: /app/data/aida.db
+      SCRAPE_CRON: ${SCRAPE_CRON:-15 6 * * *}
+      USE_MOCK: ${USE_MOCK:-true}
+      AIDA_API_URL: ${AIDA_API_URL:-}
+      AIDA_USER_AGENT: ${AIDA_USER_AGENT:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-AIDA Preisalarm <noreply@example.com>}
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${APP_PORT:-3000}/api/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

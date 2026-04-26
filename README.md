@@ -65,6 +65,43 @@ npm run notify   # nur Benachrichtigungen prüfen/versenden
 
 Beim Anlegen eines Watchlist-Eintrags wird der aktuell günstigste Tarif als „Baseline“ gespeichert. Nach jedem Scrape wird der neue beste Tarif verglichen. Liegt er unter der Baseline, geht eine Mail raus und die Baseline wird aktualisiert (sodass nicht bei jedem Scrape erneut gemailt wird, solange der Preis gleich bleibt). Steigt der Preis wieder, bleibt die Baseline, sodass beim nächsten Drop wieder gemailt wird.
 
+## Docker
+
+```bash
+docker compose --profile prod up -d --build
+```
+
+Das Image wird aus dem `Dockerfile` gebaut, die SQLite-Datei liegt im Bind-Mount `./data`. Konfiguration via `.env` (optional) oder direkt über `environment:` im Compose.
+
+## Deployment (GitHub Actions)
+
+Der Workflow `.github/workflows/deploy.yml` ist an das aus dem Beispiel angelehnt:
+
+- **Trigger:** Push auf `main` oder beliebige Branches (mit relevanten Pfaden) sowie `workflow_dispatch`. `claude/*`-Branches werden vom Auto-Deploy ausgenommen.
+- **Targets:** `main` → Profil `prod` (Port 3000), alle anderen Branches → Profil `dev` (Port 3001). Beide laufen auf dem gleichen Server unter `/opt/aida-price-alarm/{prod,dev}`.
+- **Übertragung:** Tar-Bundle via `appleboy/scp-action`, Deploy via `appleboy/ssh-action`.
+- **Datenpersistenz:** `data/` und eine optionale operator-gepflegte `.env` werden bei jedem Redeploy in einem Staging-Verzeichnis zwischengespeichert und nach dem Entpacken zurückgelegt – das Compose-Verzeichnis selbst wird sauber neu aufgesetzt.
+- **Backup auf `main`:** Vor dem prod-Deploy wird ein Online-Backup der SQLite-Datei erzeugt (`sqlite3 .backup` aus einem Wegwerf-Container, gzipped) nach `/opt/backups/aida/aida_<timestamp>.db.gz`. Es werden die letzten 10 Backups aufbewahrt.
+- **Healthcheck:** Compose hat einen `wget` auf `/api/status` als Healthcheck.
+
+### Benötigte GitHub-Secrets
+
+| Secret | Zweck |
+|--------|-------|
+| `DEPLOY_HOST` | Hostname/IP des Zielservers |
+| `DEPLOY_USER` | SSH-User mit `sudo` und Docker-Rechten |
+| `DEPLOY_SSH_KEY` | Privater SSH-Key (PEM) für diesen User |
+
+### Server-Vorbereitung (einmalig)
+
+```bash
+sudo mkdir -p /opt/aida-price-alarm/{prod,dev} /opt/backups/aida
+# SMTP- und Live-API-Konfig anlegen (optional, sonst Mock + Mail-Log auf stdout):
+sudo vi /opt/aida-price-alarm/prod/.env
+```
+
+Beim ersten Deploy wird das Compose-Stack gebaut, ein leeres Volume `data/` angelegt und die App startet im Mock-Modus, sofern die `.env` keinen Live-Endpoint setzt.
+
 ## Hinweis zum Scraping
 
 Das Skript greift nur lesend auf öffentlich verfügbare Daten zu und schickt einen klar identifizierbaren User-Agent. Vor produktivem Einsatz `robots.txt`, AGB und Frequenz prüfen – ein Scrape pro Tag liegt deutlich unter typischen Limits.
