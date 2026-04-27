@@ -103,8 +103,13 @@ async function fetchFilterCatalog() {
  * On a per-region error (e.g. Akamai blocks) we yield it and continue with
  * the next region instead of aborting the whole scrape.
  */
-async function* streamCatalog({ adults = 2, log = console, pauseMs = 900 } = {}) {
-  for (const region of REGIONS) {
+async function* streamCatalog({ adults = 2, log = console, pauseMs = 900, regionPauseMs = 3000 } = {}) {
+  // Randomise region order so a daily run that gets cut off doesn't always
+  // miss the same regions.
+  const regionOrder = [...REGIONS].sort(() => Math.random() - 0.5);
+
+  for (let regionIdx = 0; regionIdx < regionOrder.length; regionIdx++) {
+    const region = regionOrder[regionIdx];
     const regionName = REGION_NAMES[region] || region;
     const merged = new Map();
     let regionError = null;
@@ -113,8 +118,9 @@ async function* streamCatalog({ adults = 2, log = console, pauseMs = 900 } = {})
       // Fresh cookie per region keeps Akamai sessions short and isolates
       // problems: a failure in one region doesn't poison the next.
       await ensureCookie(true);
+      if (regionIdx > 0) await sleep(regionPauseMs);
 
-      let page = 1, totalPages = 1;
+      let page = 1, totalPages = 1, retried = false;
       do {
         const data = await aidaJson(SEARCH_PATH, {
           region, p: page, size: 20,
@@ -123,11 +129,28 @@ async function* streamCatalog({ adults = 2, log = console, pauseMs = 900 } = {})
         });
         totalPages = Number(data.totalPages || 1);
         const items = Array.isArray(data.cruiseItems) ? data.cruiseItems : [];
+
+        // Akamai often answers "200 OK with empty cruiseItems" instead of
+        // an error after the bot detection kicks in. Detect this on page 1
+        // and retry once with a fresh cookie before giving up on the region.
+        if (page === 1 && totalPages === 1 && items.length === 0 && !retried) {
+          log.warn?.(`[scrape] region=${region} returned empty page 1, retrying with fresh cookie`);
+          retried = true;
+          await ensureCookie(true);
+          await sleep(1500);
+          continue;
+        }
+
         for (const item of items) accumulateRoute(merged, item, regionName);
         log.info?.(`[scrape] region=${region} page=${page}/${totalPages} items=${items.length}`);
         page += 1;
         await sleep(pauseMs);
       } while (page <= totalPages);
+
+      if (merged.size === 0 && !regionError) {
+        regionError = 'empty result (likely Akamai block)';
+        log.warn?.(`[scrape] region=${region} ended with no routes`);
+      }
     } catch (err) {
       regionError = String(err && err.message || err);
       log.warn?.(`[scrape] region=${region} failed: ${regionError}`);
