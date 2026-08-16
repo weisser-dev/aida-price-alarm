@@ -68,23 +68,50 @@ Ende darauf, dass der Container tatsächlich antwortet — sonst schlägt der La
 
 ### Caddy
 
-Der Container hängt im `caddy-net` und macht **kein** Port-Mapping. Passwortschutz übernimmt
-Caddy — die Anwendung selbst hat bewusst keine eigene Anmeldung:
+Der Container hängt im `caddy-net` und macht **kein** Port-Mapping. Caddy erreicht ihn also
+unter seinem Containernamen. Die Datei gehört in den `sites/`-Ordner der Caddy-Installation:
 
 ```caddyfile
 aida.weisser.dev {
-    basic_auth {
-        erik <bcrypt-hash>
-    }
+    encode gzip zstd
     reverse_proxy aida-price-alarm:3000
 }
 ```
 
-Hash erzeugen: `docker run --rm caddy caddy hash-password --plaintext 'deinpasswort'`
+Der Upstream heißt **`aida-price-alarm:3000`** — das ist der `container_name` aus der
+`docker-compose.yml` und der Port aus `APP_PORT`. Zeigt der Block auf etwas anderes,
+landet man auf dem falschen Dienst oder bekommt 502.
 
-Ohne diesen Schutz wäre die Seite offen im Netz — sie enthält zwar nichts Geheimes, aber
-jeder Fremde könnte den Aktualisieren-Knopf drücken und damit Abrufe auf der Buchungsstrecke
-auslösen.
+#### Optional: Passwortschutz
+
+Die Anwendung selbst hat bewusst keine eigene Anmeldung. Wer die Seite nicht offen im Netz
+haben will, lässt Caddy davorstehen:
+
+```caddyfile
+aida.weisser.dev {
+    encode gzip zstd
+
+    # Achtung: in Caddy 2.8.4 heisst die Direktive noch "basicauth".
+    # Erst spaetere Versionen kennen "basic_auth" - 2.8.4 quittiert das
+    # mit "unrecognized directive".
+    basicauth {
+        erik <bcrypt-hash>
+    }
+
+    reverse_proxy aida-price-alarm:3000
+}
+```
+
+Hash erzeugen (fragt nach dem Passwort, statt es in der Shell-History zu hinterlassen):
+
+```bash
+docker run --rm -it caddy:2.8.4-alpine caddy hash-password
+```
+
+Ohne Schutz ist die Seite offen im Netz. Sie enthält nichts Geheimes, aber jeder Fremde
+könnte den Aktualisieren-Knopf drücken und damit Abrufe auf der Buchungsstrecke auslösen.
+Dagegen hilft auch ohne Passwort der Mindestabstand (`MINDESTABSTAND_SEKUNDEN`): mehr als
+ein Abruf je Reise und Minute geht ohnehin nicht durch.
 
 ---
 

@@ -82,10 +82,15 @@ def erlaubte_wirte():
 # ------------------------------------------------------------------ Zeitplan
 
 def intervall_stunden():
+    """0 = kein Zeitplan. Ohne gesetzte Variable darf sich nichts von selbst starten."""
+    roh = (os.environ.get("LAUF_INTERVALL_STUNDEN") or "").strip()
+    if not roh:
+        return 0
     try:
-        return max(1, int(os.environ.get("LAUF_INTERVALL_STUNDEN") or 0))
+        wert = int(roh)
     except ValueError:
         return 0
+    return wert if wert > 0 else 0
 
 
 def naechster_lauf(jetzt, stunden, offset_minuten):

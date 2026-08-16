@@ -2,7 +2,9 @@
 <html lang="de" data-theme="auto">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f4f3f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121211" media="(prefers-color-scheme: dark)">
 <title>AIDA-Überwachung</title>
 <style>
   :root {
@@ -148,9 +150,94 @@
   .kennz { display:flex; gap:18px; flex-wrap:wrap; margin-top:10px; font-size:12.5px; color:var(--text-secondary); }
   .kennz b { color:var(--text-primary); font-weight:600; }
 
+  /* ------------------------------------------------------------ Signalkarte */
+  .hero { border-radius:16px; padding:18px 18px 14px; margin-bottom:16px; border:1px solid;
+    background:var(--surface-1); }
+  .hero.crit { background:var(--critical-bg); border-color:var(--critical); }
+  .hero.warn { background:var(--warn-bg);     border-color:var(--warn); }
+  .hero.ok   { background:var(--good-bg);     border-color:var(--good); }
+  .hero .signal { display:flex; align-items:center; gap:10px; }
+  .hero .zeichen { font-size:22px; line-height:1; }
+  .hero .wort { font-size:30px; font-weight:700; letter-spacing:-0.02em; line-height:1.05; }
+  .hero.crit .wort, .hero.crit .zeichen { color:var(--critical); }
+  .hero.warn .wort, .hero.warn .zeichen { color:var(--warn); }
+  .hero.ok   .wort, .hero.ok   .zeichen { color:var(--good); }
+  .hero .kurz { margin:6px 0 0; font-size:14.5px; color:var(--text-primary); }
+  .hero .was { margin:4px 0 0; font-size:12px; color:var(--text-secondary); }
+  .hero .zahlen { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:14px;
+    max-width:620px; }
+  .hero .zahl { background:var(--surface-1); border:1px solid var(--border); border-radius:12px;
+    padding:10px 12px; min-width:0; }
+  .hero .zahl .z { display:block; font-size:21px; font-weight:650; letter-spacing:-0.02em;
+    white-space:nowrap; }
+  .hero .zahl .l { display:block; font-size:11.5px; color:var(--text-secondary); margin-top:2px; }
+  .hero .zahl svg { margin-top:6px; height:24px; }
+  .hero .pp { margin:12px 0 0; font-size:12.5px; color:var(--text-secondary); }
+  .hero .warum { margin-top:12px; }
+  .hero .warum summary { font-size:13px; color:var(--text-secondary); padding:6px 0;
+    list-style:none; }
+  .hero .warum summary::-webkit-details-marker { display:none; }
+  .hero .warum summary::after { content:" ▾"; }
+  .hero .warum[open] summary::after { content:" ▴"; }
+  .hero .warum ul { margin:4px 0 0; padding-left:18px; font-size:13.5px; }
+  .hero .warum li { margin-bottom:4px; }
+  .hero .warum .fuss { font-size:11.5px; color:var(--text-muted); margin-top:8px; }
+
+  /* Klappbare Karte (auf dem Handy) */
+  details.card > summary { list-style:none; cursor:pointer; font-size:15px; font-weight:600;
+    padding:2px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  details.card > summary::-webkit-details-marker { display:none; }
+  details.card > summary::after { content:"▾"; color:var(--text-muted); font-weight:400; }
+  details.card[open] > summary::after { content:"▴"; }
+  details.card > summary + * { margin-top:10px; }
+
+  /* Aktionsleiste am unteren Rand, nur auf schmalen Schirmen */
+  .leiste { display:none; }
+
   footer { color:var(--text-muted); font-size:12.5px; margin-top:26px; line-height:1.7; }
   footer a { color:var(--series-1); }
   .laedt { opacity:.55; }
+
+  /* ------------------------------------------------------------ Handy */
+  @media (max-width: 700px) {
+    body { padding:14px 12px calc(84px + env(safe-area-inset-bottom)); }
+    header { flex-direction:row; align-items:center; gap:10px; margin-bottom:12px; }
+    h1 { font-size:18px; margin:0; }
+    .stand { margin-top:2px; }
+    .kopfaktionen { justify-content:flex-end; }
+    .kopfaktionen .btn { min-width:44px; font-size:16px; padding:8px 12px; }
+    .kopfaktionen .btn.stark { display:none; }   /* steckt unten in der Leiste */
+    .card { padding:14px 14px 12px; border-radius:14px; margin-bottom:12px; }
+    .tiles { grid-template-columns:repeat(2,1fr); gap:10px; }
+    .tile { padding:12px 13px; }
+    .tile .val { font-size:22px; }
+    .hero .wort { font-size:34px; }
+    .hero .zahl .z { font-size:19px; }
+    .reiter { overflow-x:auto; flex-wrap:nowrap; -webkit-overflow-scrolling:touch;
+      padding-bottom:2px; }
+    .reiter button { flex:none; }
+    .toolbar { overflow-x:auto; flex-wrap:nowrap; -webkit-overflow-scrolling:touch;
+      padding-bottom:4px; }
+    .toolbar button { flex:none; min-height:34px; }
+    .btn { min-height:42px; }
+    .zeile { flex-direction:column; align-items:stretch; }
+    .feld input, .feld select { min-height:44px; }
+    table { font-size:12.5px; }
+    th, td { padding:8px 6px; }
+    .tt { font-size:12px; }
+    footer { font-size:11.5px; }
+
+    .leiste { display:flex; position:fixed; left:0; right:0; bottom:0; gap:8px; z-index:40;
+      padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+      background:color-mix(in srgb, var(--surface-0) 88%, transparent);
+      backdrop-filter:blur(12px); border-top:1px solid var(--border); }
+    .leiste .btn { flex:1; min-height:48px; font-size:15px; font-weight:600; border-radius:12px; }
+  }
+
+  @media (max-width: 380px) {
+    .hero .zahlen { grid-template-columns:1fr 1fr; }
+    .hero .zahl:last-child { grid-column:1 / -1; }
+  }
 </style>
 </head>
 <body>
@@ -194,6 +281,49 @@
     return e;
   }
   function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function istMobil() { return matchMedia("(max-width: 700px)").matches; }
+  function kurzName(n) {
+    if (!istMobil()) return n;
+    return String(n).replace("Verandakabine ", "Veranda ").replace("Meerblickkabine", "Meerblick")
+      .replace("Balkonkabine", "Balkon").replace("Innenkabine", "Innen");
+  }
+
+  // Winziger Verlauf ohne Achsen - zeigt die Richtung, nicht die Zahlen.
+  function sparkline(werte, farbe, breite, hoehe) {
+    breite = breite || 100; hoehe = hoehe || 24;
+    var w = werte.filter(function (v) { return v != null; });
+    var svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 " + breite + " " + hoehe);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("aria-hidden", "true");
+    svg.style.width = "100%";
+    if (w.length < 2) return svg;
+    var lo = Math.min.apply(null, w), hi = Math.max.apply(null, w);
+    var flach = (hi === lo);
+    var spanne = flach ? 1 : (hi - lo);
+    var pad = 3;
+    var x = function (i) { return breite * i / (w.length - 1); };
+    var y = function (v) {
+      if (flach) return hoehe / 2;   // sonst klebt eine unveränderte Reihe am Rand
+      return hoehe - pad - (v - lo) / spanne * (hoehe - 2 * pad);
+    };
+    var d = w.map(function (v, i) { return (i ? "L" : "M") + x(i).toFixed(1) + "," + y(v).toFixed(1); }).join("");
+    var pfad = document.createElementNS(NS, "path");
+    pfad.setAttribute("d", d);
+    pfad.setAttribute("fill", "none");
+    pfad.setAttribute("stroke", farbe);
+    pfad.setAttribute("stroke-width", "2");
+    pfad.setAttribute("stroke-linecap", "round");
+    pfad.setAttribute("stroke-linejoin", "round");
+    pfad.setAttribute("vector-effect", "non-scaling-stroke");
+    svg.appendChild(pfad);
+    var punkt = document.createElementNS(NS, "circle");
+    punkt.setAttribute("cx", x(w.length - 1)); punkt.setAttribute("cy", y(w[w.length - 1]));
+    punkt.setAttribute("r", "2.5"); punkt.setAttribute("fill", farbe);
+    punkt.setAttribute("vector-effect", "non-scaling-stroke");
+    svg.appendChild(punkt);
+    return svg;
+  }
 
   var toastZeit;
   function toast(text, schlecht) {
@@ -221,9 +351,14 @@
   function beschaeftigtSetzen(an) {
     beschaeftigt = an;
     app.classList.toggle("laedt", an);
+    var leiste = document.getElementById("leiste");
     [].forEach.call(app.querySelectorAll("button"), function (b) {
       if (b.dataset.immer !== "1") b.disabled = an;
     });
+    if (leiste) {
+      leiste.style.opacity = an ? ".55" : "";
+      [].forEach.call(leiste.querySelectorAll("button"), function (b) { b.disabled = an; });
+    }
   }
 
   // ------------------------------------------------------------ Diagramme
@@ -243,7 +378,14 @@
     opt = opt || {};
     ziel.innerHTML = "";
     var fig = el("figure"), tip = el("div", { class: "tt" });
-    var B = { l: 56, t: 14, r: 90, b: 30 }, W = 900, H = opt.hoehe || 260;
+    // Auf dem Handy ein kleineres Koordinatensystem: die Schrift im SVG skaliert
+    // mit der Breite mit, ein 900er Raster wird auf 350 px unleserlich.
+    var eng = istMobil();
+    var B = eng ? { l: 40, t: 12, r: 58, b: 26 } : { l: 56, t: 14, r: 90, b: 30 };
+    var W = eng ? 420 : 900;
+    var H = opt.hoehe || 260;
+    if (eng) H = Math.round(H * 0.62);
+    var SCHRIFT = eng ? 12 : 11;
     var box = { l: B.l, t: B.t, w: W - B.l - B.r, h: H - B.t - B.b };
     var svg = s("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": opt.aria || "Verlauf" });
     var n = labels.length;
@@ -271,14 +413,14 @@
     ticks(lo, hi, 4).filter(function (v) { return v >= lo && v <= hi; }).forEach(function (v) {
       g.appendChild(s("line", { x1: box.l, y1: ys(v), x2: box.l + box.w, y2: ys(v),
         stroke: css("--grid"), "stroke-width": 1 }));
-      g.appendChild(s("text", { x: box.l - 8, y: ys(v) + 4, "text-anchor": "end",
-        fill: css("--text-muted"), "font-size": 11 })).textContent = (opt.fmtY || String)(v);
+      g.appendChild(s("text", { x: box.l - 6, y: ys(v) + 4, "text-anchor": "end",
+        fill: css("--text-muted"), "font-size": SCHRIFT })).textContent = (opt.fmtY || String)(v);
     });
-    var jeder = Math.max(1, Math.ceil(n / 8));
+    var jeder = Math.max(1, Math.ceil(n / (eng ? 4 : 8)));
     labels.forEach(function (_, i) {
       if (i % jeder !== 0 && i !== n - 1) return;
-      g.appendChild(s("text", { x: xs(i), y: box.t + box.h + 18, "text-anchor": "middle",
-        fill: css("--text-muted"), "font-size": 11 })).textContent = dt(labels[i]);
+      g.appendChild(s("text", { x: xs(i), y: box.t + box.h + 16, "text-anchor": "middle",
+        fill: css("--text-muted"), "font-size": SCHRIFT })).textContent = dt(labels[i]);
     });
 
     var beschriftungen = [];
@@ -299,7 +441,8 @@
             stroke: css("--surface-1"), "stroke-width": 2, "stroke-linejoin": "round" }));
         } else {
           var o0 = ys(oben[0][si]), u0 = ys(si === 0 ? 0 : oben[0][si - 1]);
-          g.appendChild(s("rect", { x: xs(0) - 26, y: Math.min(o0, u0), width: 52,
+          g.appendChild(s("rect", { x: xs(0) - (eng ? 18 : 26), y: Math.min(o0, u0),
+            width: eng ? 36 : 52,
             height: Math.max(2, Math.abs(u0 - o0)), fill: farbe, "fill-opacity": .88,
             stroke: css("--surface-1"), "stroke-width": 2, rx: 2 }));
         }
@@ -311,7 +454,8 @@
           fill: "none", stroke: farbe, "stroke-width": 2, "stroke-linecap": "round",
           "stroke-linejoin": "round" }));
         pts.forEach(function (p) {
-          g.appendChild(s("circle", { cx: p[0], cy: p[1], r: pts.length > 12 ? 0 : 4.5,
+          g.appendChild(s("circle", { cx: p[0], cy: p[1],
+            r: pts.length > 12 ? 0 : (eng ? 3.5 : 4.5),
             fill: farbe, stroke: css("--surface-1"), "stroke-width": 2 }));
         });
       }
@@ -325,14 +469,16 @@
       }
     });
     beschriftungen.sort(function (a, b) { return a.y - b.y; });
+    var mindest = eng ? 13 : 15;
     for (var bi = 1; bi < beschriftungen.length; bi++) {
-      if (beschriftungen[bi].y - beschriftungen[bi - 1].y < 15)
-        beschriftungen[bi].y = beschriftungen[bi - 1].y + 15;
+      if (beschriftungen[bi].y - beschriftungen[bi - 1].y < mindest)
+        beschriftungen[bi].y = beschriftungen[bi - 1].y + mindest;
     }
     beschriftungen.forEach(function (b) {
-      g.appendChild(s("circle", { cx: box.l + box.w + 15, cy: b.y - 4, r: 3.5, fill: b.farbe }));
-      g.appendChild(s("text", { x: box.l + box.w + 23, y: b.y, fill: css("--text-secondary"),
-        "font-size": 11.5 })).textContent = b.text;
+      g.appendChild(s("circle", { cx: box.l + box.w + (eng ? 8 : 15), cy: b.y - 4,
+        r: eng ? 3 : 3.5, fill: b.farbe }));
+      g.appendChild(s("text", { x: box.l + box.w + (eng ? 14 : 23), y: b.y,
+        fill: css("--text-secondary"), "font-size": SCHRIFT })).textContent = b.text;
     });
 
     var kreuz = s("line", { x1: 0, y1: box.t, x2: 0, y2: box.t + box.h, stroke: css("--text-muted"),
@@ -341,9 +487,10 @@
     var treffer = s("rect", { x: box.l - 10, y: box.t, width: box.w + 20, height: box.h,
       fill: "transparent", style: "cursor:crosshair" });
     svg.appendChild(treffer);
-    treffer.addEventListener("mousemove", function (ev) {
+    function zeigen(ev) {
+      var pos = ev.touches && ev.touches.length ? ev.touches[0] : ev;
       var r = svg.getBoundingClientRect();
-      var i = n === 1 ? 0 : Math.round(((ev.clientX - r.left) / r.width * W - box.l) / (box.w / (n - 1)));
+      var i = n === 1 ? 0 : Math.round(((pos.clientX - r.left) / r.width * W - box.l) / (box.w / (n - 1)));
       i = Math.max(0, Math.min(n - 1, i));
       kreuz.setAttribute("x1", xs(i)); kreuz.setAttribute("x2", xs(i)); kreuz.setAttribute("opacity", 1);
       var html = "<b>" + dtLang(labels[i]) + "</b>";
@@ -360,16 +507,20 @@
       var fr = fig.getBoundingClientRect();
       tip.style.left = Math.min(Math.max(6, xs(i) / W * fr.width + 14), fr.width - tip.offsetWidth - 6) + "px";
       tip.style.top = "8px";
-    });
-    treffer.addEventListener("mouseleave", function () {
-      tip.style.opacity = 0; kreuz.setAttribute("opacity", 0);
-    });
+    }
+    function verbergen() { tip.style.opacity = 0; kreuz.setAttribute("opacity", 0); }
+    treffer.addEventListener("mousemove", zeigen);
+    treffer.addEventListener("mouseleave", verbergen);
+    treffer.addEventListener("touchstart", zeigen, { passive: true });
+    treffer.addEventListener("touchmove", zeigen, { passive: true });
+    treffer.addEventListener("touchend", verbergen);
 
     fig.appendChild(svg); fig.appendChild(tip); ziel.appendChild(fig);
     if (serien.length > 1) {
       var lg = el("div", { class: "legend" });
       serien.forEach(function (se) {
-        lg.appendChild(el("span", { class: "k", html: '<i style="background:' + se.farbe + '"></i>' + se.name }));
+        lg.appendChild(el("span", { class: "k", html: '<i style="background:' + se.farbe + '"></i>' +
+          kurzName(se.name) }));
       });
       ziel.appendChild(lg);
     }
@@ -381,17 +532,21 @@
       .sort(function (a, b) { return (+a[0] || 99) - (+b[0] || 99); });
     if (!eintraege.length) { ziel.appendChild(el("p", { class: "note", text: "Keine Deckdaten." })); return; }
     var max = Math.max.apply(null, eintraege.map(function (e) { return e[1]; }));
-    var zh = 26, W = 900, L = 62, R = 46, H = eintraege.length * zh + 10;
+    var eng = istMobil();
+    var zh = eng ? 24 : 26, W = eng ? 420 : 900, L = eng ? 50 : 62, R = eng ? 34 : 46;
+    var H = eintraege.length * zh + 10;
+    var SCHRIFT = eng ? 12 : 12;
     var svg = s("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Freie Kabinen nach Deck" });
     var fig = el("figure"), tip = el("div", { class: "tt" }), farbe = css("--seq-450");
     eintraege.forEach(function (e, i) {
       var y = i * zh + 6, br = (W - L - R) * e[1] / max;
-      svg.appendChild(s("text", { x: L - 10, y: y + 13, "text-anchor": "end",
-        fill: css("--text-secondary"), "font-size": 12 })).textContent = "Deck " + e[0];
+      svg.appendChild(s("text", { x: L - 8, y: y + 13, "text-anchor": "end",
+        fill: css("--text-secondary"), "font-size": SCHRIFT }))
+        .textContent = (eng ? "" : "Deck ") + e[0];
       var r = s("rect", { x: L, y: y, width: Math.max(3, br), height: zh - 10, fill: farbe, rx: 4 });
       svg.appendChild(r);
-      svg.appendChild(s("text", { x: L + Math.max(3, br) + 8, y: y + 13,
-        fill: css("--text-secondary"), "font-size": 12 })).textContent = e[1];
+      svg.appendChild(s("text", { x: L + Math.max(3, br) + 6, y: y + 13,
+        fill: css("--text-secondary"), "font-size": SCHRIFT })).textContent = e[1];
       r.addEventListener("mousemove", function (ev) {
         tip.innerHTML = "<b>Deck " + e[0] + "</b><div class='row'><span>freie Kabinen</span><b>" + e[1] + "</b></div>";
         tip.style.opacity = 1;
@@ -423,6 +578,7 @@
       el("p", { class: "note", text: "Unten den Reisecode eintragen – z. B. CO07261003." })]));
     neueReiseKarte();
     fuss();
+    leisteUnten();
   }
 
   function kopf() {
@@ -434,7 +590,9 @@
         aktionen.appendChild(el("button", { class: "btn", text: "alle Reisen",
           onclick: function () { aktualisieren("__alle"); } }));
     }
-    aktionen.appendChild(el("button", { class: "btn", text: "Ansicht wechseln", "data-immer": "1",
+    aktionen.appendChild(el("button", { class: "btn", "data-immer": "1",
+      title: "Hell/Dunkel umschalten",
+      text: istMobil() ? "◐" : "Ansicht wechseln",
       onclick: function () {
         var cur = document.documentElement.getAttribute("data-theme");
         var dunkel = cur === "dark" || (cur !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
@@ -444,10 +602,10 @@
     app.appendChild(el("header", {}, [
       el("div", {}, [
         el("h1", { text: "AIDA-Überwachung" }),
-        el("div", { class: "sub", text: LIVE
+        istMobil() ? null : el("div", { class: "sub", text: LIVE
           ? "Kabinen und Preise, so oft du magst – der Knopf holt die aktuellen Werte."
           : "Momentaufnahme ohne Server – die Knöpfe fehlen, weil keine Verbindung besteht." }),
-        el("div", { class: "stand", text: "Stand der Daten: " + (D.stand || "–") })
+        el("div", { class: "stand", text: "Stand: " + (D.stand || "–") })
       ]), aktionen]));
   }
 
@@ -476,6 +634,9 @@
     var pH = P.length ? P[P.length - 1] : null, pV = P.length > 1 ? P[P.length - 2] : null,
         pE = P.length ? P[0] : null;
     var personen = (R.reisende || [2, 0, 0]).reduce(function (a, b) { return a + b; }, 0) || 2;
+    var ph = pH ? num(pH[KEY]) : null;
+    var pv = pV ? num(pV[KEY]) : null;
+    var pe = pE ? num(pE[KEY]) : null;
 
     function pp(v, fh) { return v == null ? null : Math.round((v + FLUG[fh]) / personen); }
     function reihe(name) {
@@ -486,12 +647,17 @@
     function jsonFeld(z, f) { if (!z || !z[f]) return {}; try { return JSON.parse(z[f]); } catch (e) { return {}; } }
 
     // ---- Reisekopf
-    var kopfKarte = el("div", { class: "card" }, [
-      el("h2", { text: (R.schiff || "") + " – " + (R.titel || R.code) }),
-      el("p", { class: "note", text: dtLang(R.von) + " – " + dtLang(R.bis) +
-        (R.naechte ? " · " + R.naechte + " Nächte" : "") + " · Reisecode " + R.code +
-        (R.route ? " · " + R.route : "") })
-    ]);
+    var mobil = istMobil();
+    var kopfKarte = mobil
+      ? el("details", { class: "card" }, [el("summary", { text:
+          (R.schiff || R.code) + " · " + dtLang(R.von) })])
+      : el("div", { class: "card" }, [el("h2", { text:
+          (R.schiff || "") + " – " + (R.titel || R.code) })]);
+    kopfKarte.appendChild(el("p", { class: "note", text:
+      (mobil ? (R.titel || R.code) + " · " : "") +
+      dtLang(R.von) + " – " + dtLang(R.bis) +
+      (R.naechte ? " · " + R.naechte + " Nächte" : "") +
+      " · " + R.code + (R.route && !mobil ? " · " + R.route : "") }));
     var steuer = el("div", { class: "zeile", style: "margin-top:4px" });
     var bisFeld = el("input", { type: "date", value: R.ueberwachen_bis || "" });
     steuer.appendChild(el("label", { class: "feld" }, [
@@ -520,43 +686,65 @@
     if (R.zuletzt_geprueft)
       kopfKarte.appendChild(el("p", { class: "note", style: "margin:10px 0 2px",
         text: "Zuletzt abgerufen: " + R.zuletzt_geprueft + (R.letzter_fehler ? " · " + R.letzter_fehler : "") }));
-    app.appendChild(kopfKarte);
+    if (!mobil) app.appendChild(kopfKarte);
 
-    // ---- Einschätzung: buchen oder warten?
+    // ---- Signalkarte: das Wichtigste zuerst, alles andere aufklappbar
     var EIN = E.einschaetzung;
     if (EIN) {
-      var stufeText = { jetzt: "handeln", bald: "bald entscheiden", abwarten: "entspannt",
-                        weg: "vorbei" }[EIN.stufe] || EIN.stufe;
-      var ratKarte = el("div", { class: "rat " + (EIN.farbe || "ok") });
-      ratKarte.appendChild(el("div", { class: "kopf" }, [
-        el("h2", { text: EIN.titel }),
-        el("span", { class: "stufe", text: stufeText })]));
+      var WORT = { jetzt: "JETZT BUCHEN", bald: "BALD BUCHEN",
+                   abwarten: "WARTEN", weg: "VERPASST" };
+      var ZEICHEN = { jetzt: "▲", bald: "●", abwarten: "✓", weg: "✕" };
+      var kz = EIN.kennzahlen || {};
+      var hero = el("section", { class: "hero " + (EIN.farbe || "ok") });
+      hero.appendChild(el("div", { class: "signal" }, [
+        el("span", { class: "zeichen", "aria-hidden": "true", text: ZEICHEN[EIN.stufe] || "●" }),
+        el("span", { class: "wort", text: WORT[EIN.stufe] || EIN.titel })]));
+      hero.appendChild(el("p", { class: "kurz", text: EIN.kurz || EIN.titel }));
+      hero.appendChild(el("p", { class: "was", text:
+        HAUPT.name + " · Tarif " + (R.tarif || "LIGHT") + " · " + personen + " Pers." }));
+
+      // Drei Zahlen: Preis, verfügbar, Tempo
+      var zahlen = el("div", { class: "zahlen" });
+      function zahl_(wert, label, spark) {
+        var box = el("div", { class: "zahl" }, [
+          el("span", { class: "z", text: wert }),
+          el("span", { class: "l", text: label })]);
+        if (spark) box.appendChild(spark);
+        zahlen.appendChild(box);
+      }
+      var preisReihe = P.map(function (r) { return num(r[KEY]); });
+      var freiReihe = reihe(HAUPT.name).map(function (r) { return num(r.gesamt); });
+      zahl_(ph == null ? "kein Preis" : eur(ph), "Kabinenpreis",
+            sparkline(preisReihe, css("--series-1")));
+      zahl_(HAUPT.frei == null ? "–" : HAUPT.frei.toLocaleString("de-DE"), "Kabinen frei",
+            sparkline(freiReihe, css("--series-3")));
+      var tempo = kz.weg_pro_tag;
+      zahl_(tempo == null ? "–"
+              : (tempo === 0 ? "0" : Math.abs(tempo).toLocaleString("de-DE")),
+            tempo == null ? "Tempo folgt"
+              : (tempo > 0 ? "pro Tag weg" : (tempo < 0 ? "pro Tag zurück" : "unverändert")));
+      hero.appendChild(zahlen);
+
+      if (ph != null && FH.length) {
+        hero.appendChild(el("p", { class: "pp", text: "pro Person inkl. Flug: " +
+          FH.map(function (f) { return f + " " + eur(pp(ph, f)); }).join(" · ") }));
+      }
+
+      var warum = el("details", { class: "warum" });
+      warum.appendChild(el("summary", { text: "Begründung · " +
+        ((EIN.signale || []).length) + " Signale" }));
       var ul = el("ul");
       (EIN.signale || []).forEach(function (z) { ul.appendChild(el("li", { text: z })); });
-      ratKarte.appendChild(ul);
-      var kz = EIN.kennzahlen || {};
-      var zahlen = el("div", { class: "kennz" });
-      function kz_(lab, wert) {
-        if (wert == null || wert === "") return;
-        zahlen.appendChild(el("span", { html: lab + ": <b>" + wert + "</b>" }));
-      }
-      kz_("Messungen", kz.messungen);
-      kz_("beobachtet seit", (kz.tage_beobachtet || 0) + " Tagen");
-      if (kz.preis_trend_eur_pro_tag != null)
-        kz_("Preistrend", (kz.preis_trend_eur_pro_tag > 0 ? "+" : "") +
-          kz.preis_trend_eur_pro_tag.toLocaleString("de-DE") + " €/Tag");
-      if (kz.kabinen_trend_pro_tag != null)
-        kz_("Kabinen", (kz.kabinen_trend_pro_tag > 0 ? "+" : "") +
-          kz.kabinen_trend_pro_tag.toLocaleString("de-DE") + "/Tag");
-      kz_("bis Aktionsende", kz.tage_bis_aktionsende != null ? kz.tage_bis_aktionsende + " Tage" : null);
-      kz_("bis Abreise", kz.tage_bis_abreise != null ? kz.tage_bis_abreise + " Tage" : null);
-      ratKarte.appendChild(zahlen);
-      ratKarte.appendChild(el("div", { class: "fuss", text:
-        "Das ist eine regelbasierte Einschätzung aus der eigenen Messreihe, keine Vorhersage – " +
-        "sie kennt weder AIDAs Kontingentplanung noch die Nachfrage. Vertrauen in die Aussage: "
-        + EIN.vertrauen + "." }));
-      app.appendChild(ratKarte);
+      warum.appendChild(ul);
+      warum.appendChild(el("div", { class: "fuss", text:
+        "Regelbasierte Einschätzung aus der eigenen Messreihe, keine Vorhersage. " +
+        kz.messungen + " Messungen über " + (kz.tage_beobachtet === 1 ? "1 Tag"
+          : (kz.tage_beobachtet || 0) + " Tage") + " · Vertrauen: " + EIN.vertrauen + "." }));
+      if (!mobil) warum.open = true;
+      hero.appendChild(warum);
+      app.appendChild(hero);
     }
+    if (mobil) app.appendChild(kopfKarte);
 
     // ---- Banner
     if (L.alarm) {
@@ -565,10 +753,6 @@
       ul.appendChild(el("li", { text: "AIDA-Beratung: " + ((D.global.links || {}).beratung || "") }));
       app.appendChild(el("div", { class: "banner crit" }, [el("span", { class: "ico", text: "▲" }),
         el("div", {}, [el("b", { text: "Alarm – handeln" }), ul])]));
-    } else {
-      app.appendChild(el("div", { class: "banner ok" }, [el("span", { class: "ico", text: "✓" }),
-        el("div", {}, [el("b", { text: "Ruhige Lage" }),
-          el("div", { text: "Kein Alarmkriterium erfüllt." })])]));
     }
 
     // ---- Kacheln
@@ -591,7 +775,6 @@
             : (frei - freiVor > 0 ? "+" : "") + (frei - freiVor) + " zum " + dt(kV.datum)),
         freiVor == null ? "" : (frei < freiVor ? "up" : (frei > freiVor ? "down" : "")));
     });
-    var ph = pH ? num(pH[KEY]) : null, pv = pV ? num(pV[KEY]) : null, pe = pE ? num(pE[KEY]) : null;
     kachel(HAUPT.name + " " + (R.tarif || "LIGHT"), ph == null ? "kein Preis" : eur(ph),
       personen + " Pers., ohne Flug",
       pv == null ? "erste Messung"
@@ -606,11 +789,23 @@
           : (w - we > 0 ? "+" : "") + eur(w - we) + " seit Beginn"),
         we == null ? "" : (w > we ? "up" : (w < we ? "down" : "")));
     });
-    app.appendChild(tiles);
+    if (istMobil()) {
+      var kachelKarte = karte("Alle Zahlen im Detail");
+      kachelKarte.appendChild(tiles);
+    } else {
+      app.appendChild(tiles);
+    }
 
     var farben = [css("--series-1"), css("--series-2"), css("--series-3")];
-    function karte(titel, notiz) {
-      var c = el("div", { class: "card" }, [el("h2", { text: titel })]);
+    // Auf dem Handy wird jede Detailkarte zugeklappt ausgeliefert - erst kommt
+    // das Signal, der Rest nur auf Wunsch. Am Rechner bleibt alles offen.
+    function karte(titel, notiz, immerOffen) {
+      var c;
+      if (istMobil() && !immerOffen) {
+        c = el("details", { class: "card" }, [el("summary", { text: titel })]);
+      } else {
+        c = el("div", { class: "card" }, [el("h2", { text: titel })]);
+      }
       if (notiz) c.appendChild(el("p", { class: "note", text: notiz }));
       app.appendChild(c); return c;
     }
@@ -631,7 +826,7 @@
     var c1 = karte("Freie Kabinen im Verlauf",
       "Gezählt wird, was in der Kabinenwahl wählbar ist – physische Kabinen, unabhängig vom Tarif. Bei einer einzelnen Kategorie gestapelt nach Unterkategorie.");
     var c1modus = HAUPT.name;
-    var opts = GR.map(function (g) { return { id: g.name, lab: g.name }; });
+    var opts = GR.map(function (g) { return { id: g.name, lab: kurzName(g.name) }; });
     if (GR.length > 1) opts.push({ id: "__alle", lab: "alle im Vergleich" });
     c1.appendChild(leiste(opts, c1modus, function (id) { c1modus = id; zeichneKabinen(); }));
     var c1plot = el("div"); c1.appendChild(c1plot);
@@ -645,7 +840,7 @@
       if (!liste.length) return;
       var t = el("table");
       var kopfz = el("tr", {}, [el("th", { text: "Tag" }), el("th", { text: "gemessen" })]);
-      GR.forEach(function (g) { kopfz.appendChild(el("th", { text: g.name })); });
+      GR.forEach(function (g) { kopfz.appendChild(el("th", { text: kurzName(g.name) })); });
       t.appendChild(el("thead", {}, [kopfz]));
       var tb = el("tbody");
       liste.forEach(function (d) {
@@ -742,7 +937,7 @@
     var c3 = karte("Freie Kabinen nach Deck",
       "Momentaufnahme des letzten Laufs – zeigt, wo AIDA im " + (R.tarif || "LIGHT") + "-Tarif zuweisen kann.");
     var c3modus = HAUPT.name;
-    c3.appendChild(leiste(GR.map(function (g) { return { id: g.name, lab: g.name }; }),
+    c3.appendChild(leiste(GR.map(function (g) { return { id: g.name, lab: kurzName(g.name) }; }),
       c3modus, function (id) { c3modus = id; zeichneDecks(); }));
     var c3plot = el("div"); c3.appendChild(c3plot);
     function zeichneDecks() {
@@ -793,8 +988,8 @@
       det.appendChild(el("summary", { text: "Messreihe als Tabelle" }));
       var t2 = el("table");
       var h2 = el("tr", {}, [el("th", { text: "Datum" })]);
-      GR.forEach(function (g) { h2.appendChild(el("th", { text: "frei: " + g.name })); });
-      h2.appendChild(el("th", { text: HAUPT.name + " " + (R.tarif || "LIGHT") }));
+      GR.forEach(function (g) { h2.appendChild(el("th", { text: "frei: " + kurzName(g.name) })); });
+      h2.appendChild(el("th", { text: kurzName(HAUPT.name) + " " + (R.tarif || "LIGHT") }));
       FH.forEach(function (fh) { h2.appendChild(el("th", { text: "p.P. " + fh })); });
       t2.appendChild(el("thead", {}, [h2]));
       var tb2 = el("tbody"), tage = {};
@@ -816,8 +1011,54 @@
 
     zeichneKabinen(); zeichneKabinenTabelle(); zeichnePreise(); zeichneDecks();
 
+    // ---- Vergleichstermine
+    if (E.vergleich && (E.vergleich.termine || []).length) {
+      var cv = karte("Vergleichbare Termine",
+        "Dieselbe Reihe, wochenweise davor und danach. Zeigt, ob eure Kombination üblich " +
+        "oder die Ausnahme ist. Stand: " + dtLang(E.vergleich.stand) + ".");
+      var tv = el("table");
+      var kv = el("tr", {}, [el("th", { text: "Termin" }), el("th", { text: "Route" }),
+        el("th", { text: kurzName(E.vergleich.kategorie) + " " + E.vergleich.tarif }),
+        el("th", { text: "CLASSIC" })]);
+      tv.appendChild(el("thead", {}, [kv]));
+      var tbv = el("tbody");
+      var alle = (E.vergleich.termine || []).slice();
+      alle.push({ code: R.code, von: R.von, bis: R.bis, titel: R.titel, erreichbar: true,
+                  eigen: true, wunsch_tarif: ph,
+                  wunsch_classic: pH ? num(pH[HAUPT.name + "|CLASSIC"]) : null });
+      alle.sort(function (a, b) { return a.von < b.von ? -1 : 1; });
+      alle.forEach(function (t) {
+        var route = (t.titel || "").replace("Mediterrane Schätze mit ", "")
+          .replace(" ab Mallorca", "");
+        var zeile = el("tr", t.eigen ? { class: "hi" } : {});
+        zeile.appendChild(el("td", { text: dtLang(t.von) + (t.eigen ? "  ← eure" : "") }));
+        zeile.appendChild(el("td", { text: t.erreichbar ? route : "—" }));
+        if (!t.erreichbar) {
+          zeile.appendChild(el("td", { class: "none", colspan: "2",
+            text: t.fehler || "nicht gelesen" }));
+        } else {
+          zeile.appendChild(t.wunsch_tarif == null
+            ? el("td", { class: "none", text: "—" })
+            : el("td", { text: eur(t.wunsch_tarif) }));
+          zeile.appendChild(t.wunsch_classic == null
+            ? el("td", { class: "none", text: "—" })
+            : el("td", { text: eur(t.wunsch_classic) }));
+        }
+        tbv.appendChild(zeile);
+      });
+      tv.appendChild(tbv);
+      var wrap = el("div", { class: "scroller" }); wrap.appendChild(tv);
+      cv.appendChild(wrap);
+      cv.appendChild(el("p", { class: "note", style: "margin-top:10px", text:
+        "Ein Strich bedeutet: dieser Tarif wird für die Kategorie an dem Termin gar nicht " +
+        "mehr angeboten. Die Routen unterscheiden sich (Korsika, Gibraltar, Sardinien) – " +
+        "die Preise sind daher nur grob vergleichbar, die Tarifverfügbarkeit dagegen sehr wohl." }));
+    }
+
     // ---- Links
-    var links = el("div", { class: "card" }, [el("h2", { text: "Buchen und gegenprüfen" })]);
+    var links = istMobil()
+      ? el("details", { class: "card" }, [el("summary", { text: "Buchen und gegenprüfen" })])
+      : el("div", { class: "card" }, [el("h2", { text: "Buchen und gegenprüfen" })]);
     var p = el("p", { class: "note" });
     var teile = [];
     Object.keys(E.links || {}).forEach(function (fh) {
@@ -827,17 +1068,17 @@
     teile.push('<a href="https://aida.euresa-reisen.de/' + R.code + '/IND/Kabine" target="_blank" rel="noopener">Kabinenwahl</a>');
     p.innerHTML = teile.join(" · ") + " · AIDA-Beratung " + ((D.global.links || {}).beratung || "");
     links.appendChild(p);
-    if (R.notiz) links.appendChild(el("p", { class: "note", text: R.notiz }));
+    if (R.notiz && !istMobil()) links.appendChild(el("p", { class: "note", text: R.notiz }));
     app.appendChild(links);
   }
 
   // ------------------------------------------------------------ Neue Reise
   function neueReiseKarte() {
     if (!LIVE) return;
-    var c = el("div", { class: "card" }, [
-      el("h2", { text: "Weitere Reise überwachen" }),
-      el("p", { class: "note", text: "Reisecode eintragen – der steht in jeder AIDA-URL, z. B. CO07261003. Ich hole Titel, Termin, Preistabelle und die vorhandenen Kabinenkategorien selbst." })
-    ]);
+    var c = istMobil()
+      ? el("details", { class: "card" }, [el("summary", { text: "Weitere Reise überwachen" })])
+      : el("div", { class: "card" }, [el("h2", { text: "Weitere Reise überwachen" })]);
+    c.appendChild(el("p", { class: "note", text: "Reisecode eintragen – der steht in jeder AIDA-URL, z. B. CO07261003. Ich hole Titel, Termin, Preistabelle und die vorhandenen Kabinenkategorien selbst." }));
     var codeFeld = el("input", { type: "text", placeholder: "CO07261003", style: "text-transform:uppercase" });
     var bisFeld = el("input", { type: "date", value: "" });
     var zeile = el("div", { class: "zeile" }, [
@@ -976,7 +1217,27 @@
     }).catch(function (e) { beschaeftigtSetzen(false); toast(e.message, true); });
   }
 
+  function leisteUnten() {
+    if (!LIVE) return;
+    var alt = document.getElementById("leiste");
+    if (alt) alt.remove();
+    var bar = el("div", { class: "leiste", id: "leiste" }, [
+      el("button", { class: "btn stark", text: "Aktualisieren",
+        onclick: function () { aktualisieren(aktiverCode); } })]);
+    if ((D.reisen || []).length > 1) {
+      bar.appendChild(el("button", { class: "btn", text: "alle",
+        onclick: function () { aktualisieren("__alle"); } }));
+    }
+    document.body.appendChild(bar);
+  }
+
   function fuss() {
+    if (istMobil()) {
+      app.appendChild(el("footer", { html:
+        "Preise von euresa-reisen.de (pro Kabine, ohne Flug), Kabinen aus der Kabinenwahl. " +
+        "Verbindlich ist aida.de. Flugkosten sind eine <b>Annahme</b>." }));
+      return;
+    }
     app.appendChild(el("footer", { html:
       "Das wichtigste Alarmsignal ist nicht die Kabinenzahl, sondern der <b>Wegfall des Tarifpreises</b> " +
       "bei der Wunschkategorie – das Kontingent eines Tarifs ist viel kleiner als die Zahl der physisch " +
@@ -1010,6 +1271,16 @@
   } else {
     zeichne();
   }
+
+  // Wechselt der Schirm zwischen schmal und breit (Drehung, Fenstergröße),
+  // muss die Seite neu aufgebaut werden - die Klappkarten hängen daran.
+  var schmal = istMobil();
+  addEventListener("resize", function () {
+    clearTimeout(window.__rz);
+    window.__rz = setTimeout(function () {
+      if (istMobil() !== schmal) { schmal = istMobil(); if (D) zeichne(); }
+    }, 250);
+  });
 })();
 </script>
 </body>

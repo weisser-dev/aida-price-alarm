@@ -193,6 +193,39 @@ finally:
         os.environ["AIDA_DATA_DIR"] = alt
     shutil.rmtree(tmp, ignore_errors=True)
 
+
+
+
+# --------------------------------------------------------------------------
+# Vergleichstermine
+# --------------------------------------------------------------------------
+print("Vergleichstermine")
+paare = A.geschwister_codes("CO07261003", 2, 2)
+pruefe([c for c, _ in paare] == ["CO07260919", "CO07260926", "CO07261010", "CO07261017"],
+       "Nachbarcodes werden wochenweise abgeleitet")
+pruefe(A.geschwister_codes("QUATSCH") == [], "unbrauchbarer Code ergibt keine Nachbarn")
+pruefe(len(A.geschwister_codes("CO07261003", 4, 4)) == 8, "vier Wochen vor und nach = 8 Termine")
+
+vgl = {"tarif": "LIGHT", "kategorie": "Verandakabine Komfort", "termine": [
+    {"code": "A", "erreichbar": True, "wunsch_tarif": None, "wunsch_classic": 3458},
+    {"code": "B", "erreichbar": True, "wunsch_tarif": None, "wunsch_classic": 2598},
+    {"code": "C", "erreichbar": True, "wunsch_tarif": 1798, "wunsch_classic": 2038},
+    {"code": "D", "erreichbar": False, "fehler": "kaputt"},
+]}
+a = A.werte_vergleich_aus(vgl)
+pruefe(a["geprueft"] == 3, "nicht erreichbare Termine zaehlen nicht mit")
+pruefe(a["mit_tarif"] == 1, "ein Termin hat den Tarif noch")
+pruefe(a["classic_min"] == 2038 and a["classic_max"] == 3458, "CLASSIC-Spanne stimmt")
+pruefe(A.werte_vergleich_aus(None) is None, "ohne Daten keine Auswertung")
+
+lage5 = A.bewerte(reise, glob, ruhig_p, ruhig_k)
+ohne_v = A.einschaetzung(reise, glob, ruhig_p, ruhig_k, lage5)
+mit_v = A.einschaetzung(reise, glob, ruhig_p, ruhig_k, lage5, vgl)
+pruefe(mit_v["kennzahlen"]["punkte"] > ohne_v["kennzahlen"]["punkte"],
+       "seltener Tarif bei Nachbarterminen erhoeht die Dringlichkeit")
+pruefe(mit_v["vertrauen"] != "niedrig" or a["geprueft"] < 6,
+       "breiter Vergleich hebt das Vertrauen")
+
 print()
 if fehler:
     print("%d Pruefung(en) fehlgeschlagen:" % len(fehler))

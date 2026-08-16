@@ -108,6 +108,16 @@ def heute():
     return jetzt_lokal().strftime("%Y-%m-%d")
 
 
+def _tage(a, b):
+    """Tage zwischen zwei JJJJ-MM-TT-Datumsangaben."""
+    try:
+        d1 = datetime.strptime(a, "%Y-%m-%d")
+        d2 = datetime.strptime(b, "%Y-%m-%d")
+        return (d2 - d1).days
+    except (ValueError, TypeError):
+        return None
+
+
 def euro(wert):
     if wert is None:
         return "-"
@@ -553,18 +563,109 @@ def bewerte(reise, glob, preis_zeilen, kabinen_zeilen):
 
 
 # --------------------------------------------------------------------------
-# Einschaetzung: buchen oder warten?
+# Vergleichstermine: was kostet dieselbe Route eine Woche frueher/spaeter?
 # --------------------------------------------------------------------------
 
-def _tage(a, b):
-    """Tage zwischen zwei JJJJ-MM-TT-Datumsangaben."""
+def geschwister_codes(code, vor=4, nach=4):
+    """
+    AIDA-Reisecodes sind aufgebaut wie CO07261003 = Schiff+Naechte, Jahr, Monat, Tag.
+    Daraus lassen sich die Termine derselben Reihe wochenweise ableiten.
+    Rueckgabe: [(code, iso_datum)] ohne den Ausgangstermin selbst.
+    """
+    m = re.match(r"^([A-Z]{2}\d{2})(\d{2})(\d{2})(\d{2})$", (code or "").strip().upper())
+    if not m:
+        return []
+    stamm, jj, mm, tt = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4))
     try:
-        d1 = datetime.strptime(a, "%Y-%m-%d")
-        d2 = datetime.strptime(b, "%Y-%m-%d")
-        return (d2 - d1).days
-    except (ValueError, TypeError):
-        return None
+        start = datetime(2000 + jj, mm, tt)
+    except ValueError:
+        return []
+    aus = []
+    for n in range(-abs(vor), abs(nach) + 1):
+        if n == 0:
+            continue
+        d = start + timedelta(weeks=n)
+        aus.append(("%s%02d%02d%02d" % (stamm, d.year % 100, d.month, d.day),
+                    d.strftime("%Y-%m-%d")))
+    return aus
 
+
+def hole_vergleich(reise, glob, ordner=ORDNER, vor=4, nach=4):
+    """
+    Holt die Preistabellen der Nachbartermine. Nur euresa-Seiten, keine
+    Buchungsstrecke - das ist eine normale Website und vertraegt das.
+    """
+    kategorien = glob.get("kategorien") or list(STANDARD_PREFIXE.keys())
+    tarife = glob["tarife"]
+    tarif = reise.get("tarif", "LIGHT")
+    wunsch = (gruppen_aus(reise)[0]["name"] if gruppen_aus(reise) else "")
+
+    termine = []
+    for code, datum in geschwister_codes(reise["code"], vor, nach):
+        eintrag = {"code": code, "von": datum, "erreichbar": False}
+        try:
+            roh = http_get(PREIS_URL.format(code=code), timeout=30)
+            tabelle, zeilen = parse_preise(roh, kategorien, tarife)
+            kopf = parse_kopf(zeilen, roh)
+            eintrag.update({
+                "erreichbar": True,
+                "titel": kopf.get("titel", ""),
+                "schiff": kopf.get("schiff", ""),
+                "von": kopf.get("von", datum),
+                "bis": kopf.get("bis", ""),
+                "wunsch_tarif": tabelle.get(wunsch, {}).get(tarif),
+                "wunsch_classic": tabelle.get(wunsch, {}).get("CLASSIC"),
+                "hat_tarif_irgendwo": [k for k in tabelle if tabelle[k].get(tarif) is not None],
+                "kategorien": len(tabelle),
+            })
+        except Exception as e:
+            eintrag["fehler"] = str(e)[:200]
+        termine.append(eintrag)
+
+    ergebnis = {"stand": heute(), "tarif": tarif, "kategorie": wunsch, "termine": termine}
+    ziel = os.path.join(wurzel(ordner), "vergleich", "%s.json" % reise["code"])
+    schreib_json(ziel, ergebnis)
+    return ergebnis
+
+
+def lies_vergleich(reise, ordner=ORDNER):
+    return lade_json(os.path.join(wurzel(ordner), "vergleich", "%s.json" % reise["code"]))
+
+
+def vergleich_faellig(reise, glob, ordner=ORDNER):
+    tage = int(glob.get("verhalten", {}).get("vergleich_alle_tage", 3) or 0)
+    if tage <= 0:
+        return False
+    alt = lies_vergleich(reise, ordner)
+    if not alt or not alt.get("stand"):
+        return True
+    abstand = _tage(alt["stand"], heute())
+    return abstand is None or abstand >= tage
+
+
+def werte_vergleich_aus(vergleich):
+    """Wie selten ist die eigene Konstellation? Zaehlt nur erreichbare Termine."""
+    if not vergleich:
+        return None
+    erreichbar = [t for t in vergleich.get("termine", []) if t.get("erreichbar")]
+    if not erreichbar:
+        return None
+    mit_tarif = [t for t in erreichbar if t.get("wunsch_tarif") is not None]
+    preise = [t["wunsch_tarif"] for t in mit_tarif]
+    classic = [t["wunsch_classic"] for t in erreichbar if t.get("wunsch_classic") is not None]
+    return {
+        "geprueft": len(erreichbar),
+        "mit_tarif": len(mit_tarif),
+        "tarif_preise": preise,
+        "classic_mittel": int(round(sum(classic) / float(len(classic)))) if classic else None,
+        "classic_min": min(classic) if classic else None,
+        "classic_max": max(classic) if classic else None,
+    }
+
+
+# --------------------------------------------------------------------------
+# Einschaetzung: buchen oder warten?
+# --------------------------------------------------------------------------
 
 def steigung(punkte):
     """
@@ -584,7 +685,7 @@ def steigung(punkte):
     return zaehler / nenner
 
 
-def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage):
+def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage, vergleich=None):
     """
     Eine begruendete Einschaetzung - ausdruecklich KEINE Vorhersage.
     Jedes Signal wird mit seiner tatsaechlichen Zahl ausgewiesen, damit
@@ -599,6 +700,7 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage):
 
     punkte = 0
     signale = []
+    treiber = []          # (Gewicht, Kurztext) - fuer die Kachel auf dem Handy
     kennzahlen = {}
 
     # --- Datenlage
@@ -611,6 +713,7 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage):
         return {
             "stufe": "weg", "titel": "Der %s-Preis für %s ist verschwunden" % (tarif, name),
             "farbe": "crit", "vertrauen": "hoch",
+            "kurz": "%s im Tarif %s nicht mehr buchbar" % (name, tarif),
             "signale": ["Das %s-Kontingent für %s ist erschöpft. Entweder ein anderer Tarif, "
                         "eine andere Kategorie – oder beim AIDA-Berater nachfragen, ob noch "
                         "etwas frei ist." % (tarif, name)],
@@ -634,6 +737,7 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage):
     if p_trend is not None:
         if p_trend > 5:
             punkte += 2
+            treiber.append((3, "Preis steigt um %+.0f € pro Tag" % p_trend))
             signale.append("Der Preis steigt: rund %+.0f € pro Tag über die bisherige Messreihe."
                            % p_trend)
         elif p_trend < -5:
@@ -668,6 +772,14 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage):
     k_trend = steigung(k_paare)
     kennzahlen["kabinen_trend_pro_tag"] = round(k_trend, 2) if k_trend is not None else None
     frei = haupt.get("frei")
+
+    # Tempo ueber das gesamte Beobachtungsfenster - gibt es auch schon bei zwei Messungen
+    kennzahlen["weg_pro_tag"] = None
+    if len(k_paare) >= 2 and k_paare[-1][0] > 0:
+        erst_wert, letzt_wert = k_paare[0][1], k_paare[-1][1]
+        if erst_wert is not None and letzt_wert is not None:
+            kennzahlen["weg_pro_tag"] = round((erst_wert - letzt_wert) / float(k_paare[-1][0]), 1)
+            kennzahlen["weg_gesamt"] = erst_wert - letzt_wert
     if k_trend is not None and frei:
         if k_trend < -0.5:
             proz = abs(k_trend) / float(frei) * 100
@@ -675,6 +787,7 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage):
             kennzahlen["tage_bis_leer_bei_gleichem_tempo"] = rest
             if proz >= 1.5:
                 punkte += 2
+                treiber.append((3, "%.1f Kabinen gehen pro Tag weg" % abs(k_trend)))
                 signale.append("Die Kabinen gehen zügig weg: %.1f pro Tag (%.1f %% des Bestands). "
                                "Bei gleichem Tempo wären es in etwa %d Tagen keine mehr."
                                % (abs(k_trend), proz, rest))
@@ -704,11 +817,60 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage):
     kennzahlen["kategorien_ohne_tarifpreis"] = ohne
     if len(ohne) >= 3:
         punkte += 1
+        treiber.append((2, "%d Kategorien haben den %s-Tarif schon verloren" % (len(ohne), tarif)))
         signale.append("In %d Kategorien gibt es den %s-Tarif schon nicht mehr (%s). Das "
                        "Kontingent zieht sich zurück – eure Kategorie kann als Nächstes dran sein."
                        % (len(ohne), tarif, ", ".join(ohne)))
     elif ohne:
         signale.append("Ohne %s-Preis: %s." % (tarif, ", ".join(ohne)))
+
+    # --- Vergleichstermine: das aussagekraeftigste Signal, weil es nicht von der
+    #     Laenge der eigenen Messreihe abhaengt
+    v = werte_vergleich_aus(vergleich)
+    if v:
+        kennzahlen["vergleich_geprueft"] = v["geprueft"]
+        kennzahlen["vergleich_mit_tarif"] = v["mit_tarif"]
+        kennzahlen["vergleich_classic_mittel"] = v["classic_mittel"]
+        anteil = v["mit_tarif"] / float(v["geprueft"])
+        if v["mit_tarif"] == 0:
+            punkte += 2
+            treiber.append((5, "kein einziger Nachbartermin hat %s noch im Tarif %s"
+                            % (name, tarif)))
+            signale.append("Von %d vergleichbaren Terminen derselben Reihe bietet KEINER "
+                           "%s im Tarif %s an. Ihr habt gerade eine Ausnahme in der Hand."
+                           % (v["geprueft"], name, tarif))
+        elif anteil <= 0.35:
+            punkte += 2
+            einer = (v["mit_tarif"] == 1)
+            treiber.append((5, "nur %s von %d Nachbarterminen %s %s noch"
+                            % ("einer" if einer else str(v["mit_tarif"]), v["geprueft"],
+                               "hat" if einer else "haben", tarif)))
+            signale.append("Von %d vergleichbaren Terminen derselben Reihe %s nur %s "
+                           "noch den %s-Tarif für %s. Diese Kombination ist die Ausnahme, "
+                           "nicht die Regel – und sie verschwindet je Termin ersatzlos."
+                           % (v["geprueft"], "hat" if einer else "haben",
+                              "einer" if einer else str(v["mit_tarif"]), tarif, name))
+        else:
+            signale.append("%d von %d vergleichbaren Terminen %s den %s-Tarif für %s "
+                           "ebenfalls noch." % (v["mit_tarif"], v["geprueft"],
+                                                "hat" if v["mit_tarif"] == 1 else "haben",
+                                                tarif, name))
+
+        eigener = haupt.get("preis_heute")
+        if v["classic_mittel"] and eigener:
+            unterschied = v["classic_mittel"] - eigener
+            if unterschied > 200:
+                punkte += 1
+                signale.append("Der CLASSIC-Preis der Nachbartermine liegt im Mittel bei "
+                               "%s € (Spanne %s–%s €). Euer %s-Preis von %s € ist deutlich "
+                               "darunter." % (euro(v["classic_mittel"]), euro(v["classic_min"]),
+                                              euro(v["classic_max"]), tarif, euro(eigener)))
+            else:
+                signale.append("Preislich liegt ihr im Rahmen der Nachbartermine (CLASSIC dort "
+                               "im Mittel %s €)." % euro(v["classic_mittel"]))
+    else:
+        signale.append("Noch kein Vergleich mit Nachbarterminen – der läuft beim nächsten "
+                       "planmäßigen Lauf mit.")
 
     # --- Aktionsfenster
     aktion = reise.get("aktion") or {}
@@ -717,11 +879,13 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage):
         kennzahlen["tage_bis_aktionsende"] = rest
         if rest is not None and 0 <= rest <= 7:
             punkte += 2
+            treiber.append((4, "Aktion endet in %d Tagen" % rest))
             signale.append("Die Aktion „%s\" endet in %d Tagen (%s). Danach ist mit "
                            "Preisanpassungen zu rechnen."
                            % (aktion.get("name", "Aktion"), rest, aktion["bis"]))
         elif rest is not None and rest <= 14:
             punkte += 1
+            treiber.append((2, "Aktion läuft noch %d Tage" % rest))
             signale.append("Die Aktion „%s\" läuft noch %d Tage." % (aktion.get("name", "Aktion"), rest))
         elif rest is not None and rest < 0:
             signale.append("Die Aktion „%s\" ist seit %d Tagen vorbei."
@@ -732,13 +896,15 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage):
     kennzahlen["tage_bis_abreise"] = bis_abreise
     if bis_abreise is not None and bis_abreise < 60:
         punkte += 1
+        treiber.append((1, "nur noch %d Tage bis zur Abreise" % bis_abreise))
         signale.append("Nur noch %d Tage bis zur Abreise – so kurz vorher werden günstige "
                        "Tarifkontingente selten wieder aufgefüllt." % bis_abreise)
 
     # --- Vertrauen in die Aussage
+    breit = v and v["geprueft"] >= 6
     if kennzahlen["messungen"] >= 20 and kennzahlen["tage_beobachtet"] >= 14:
         vertrauen = "hoch"
-    elif kennzahlen["messungen"] >= 8 and kennzahlen["tage_beobachtet"] >= 5:
+    elif (kennzahlen["messungen"] >= 8 and kennzahlen["tage_beobachtet"] >= 5) or breit:
         vertrauen = "mittel"
     else:
         vertrauen = "niedrig"
@@ -757,8 +923,15 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage):
     if vertrauen == "niedrig" and stufe == "jetzt":
         titel += " – aber auf dünner Datenlage"
 
+    if treiber:
+        kurz = sorted(treiber, reverse=True)[0][1]
+    elif stufe == "abwarten":
+        kurz = "Preis und Verfügbarkeit sind ruhig"
+    else:
+        kurz = "mehrere kleine Signale"
+
     return {"stufe": stufe, "titel": titel, "farbe": farbe, "vertrauen": vertrauen,
-            "signale": signale, "kennzahlen": kennzahlen}
+            "kurz": kurz, "signale": signale, "kennzahlen": kennzahlen}
 
 
 def _macos_mitteilung(titel, text):
@@ -986,6 +1159,13 @@ def lauf_reise(reise, glob, ordner=ORDNER, trocken=False):
     except Exception as e:
         fehler.append("Preisabruf: %s" % e)
 
+    # ---- Vergleichstermine (nur alle paar Tage - sind neun weitere Seitenaufrufe)
+    if not trocken and vergleich_faellig(reise, glob, ordner):
+        try:
+            hole_vergleich(reise, glob, ordner)
+        except Exception as e:
+            fehler.append("Vergleichstermine: %s" % e)
+
     lage = bewerte(reise, glob, preis_zeilen, kabinen_zeilen)
 
     if not trocken:
@@ -998,7 +1178,8 @@ def lauf_reise(reise, glob, ordner=ORDNER, trocken=False):
 
     return {"code": code, "reise": reise, "lage": lage, "fehler": fehler,
             "zaehlung": zaehlung, "stand": "%s %s" % (datum, uhrzeit),
-            "einschaetzung": einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage)}
+            "einschaetzung": einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage,
+                                           lies_vergleich(reise, ordner))}
 
 
 def aufraeumen(raw_ordner, tage):
@@ -1029,7 +1210,7 @@ def erstbefuellung(ordner=ORDNER):
         return []
     import shutil
     kopiert = []
-    for teil in ("reisen", "daten"):
+    for teil in ("reisen", "daten", "vergleich"):
         q = os.path.join(quelle, teil)
         z = os.path.join(wurzel(ordner), teil)
         if not os.path.isdir(q):
@@ -1058,6 +1239,7 @@ def status(ordner=ORDNER):
         preis_zeilen = lies_csv(os.path.join(dordner, "preise.csv"))
         kabinen_zeilen = lies_csv(os.path.join(dordner, "kabinen.csv"))
         lage = bewerte(reise, glob, preis_zeilen, kabinen_zeilen)
+        vergleich = lies_vergleich(reise, ordner)
         ausgabe.append({
             "reise": reise,
             "laeuft": ueberwachung_laeuft(reise),
@@ -1066,7 +1248,9 @@ def status(ordner=ORDNER):
             "preise": preis_zeilen,
             "kabinen": kabinen_zeilen,
             "lage": lage,
-            "einschaetzung": einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage),
+            "vergleich": vergleich,
+            "einschaetzung": einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage,
+                                           vergleich),
         })
     return {"stand": jetzt_lokal().strftime("%Y-%m-%d %H:%M"),
             "global": glob, "reisen": ausgabe}
