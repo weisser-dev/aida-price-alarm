@@ -1,0 +1,54 @@
+{
+  "code": "CO07261003",
+  "schiff": "AIDAcosma",
+  "titel": "Mediterrane Schätze mit Korsika ab Mallorca",
+  "von": "2026-10-03",
+  "bis": "2026-10-10",
+  "naechte": 7,
+  "route": "Palma de Mallorca → La Spezia → Civitavecchia/Rom → Ajaccio → Barcelona → Palma",
+  "aktiv": true,
+  "ueberwachen_bis": "2026-09-10",
+  "tarif": "LIGHT",
+  "reisende": [
+    2,
+    0,
+    0
+  ],
+  "preismodell": "IND",
+  "gruppen": [
+    {
+      "name": "Verandakabine Komfort",
+      "codes": [
+        "VA",
+        "VB",
+        "VC"
+      ],
+      "primaer": true
+    },
+    {
+      "name": "Balkonkabine",
+      "codes": [
+        "BA",
+        "BB",
+        "BC"
+      ]
+    }
+  ],
+  "preisreihen": [
+    "Verandakabine Komfort",
+    "Balkonkabine",
+    "Innenkabine"
+  ],
+  "flug": {
+    "ERF": 1000,
+    "MUC": 800
+  },
+  "notiz": "Flugkosten am 15.08.2026 dreifach gegen aida.de zurückgerechnet: Veranda Komfort LIGHT 2.258 € → 1.629 € p.P. · Veranda Deluxe CLASSIC 2.758 € → 1.879 € · Junior-Suite CLASSIC 3.598 € → 2.299 €. Aktion „AIDA Herbst Deals\" 13.08.–07.09.2026.",
+  "angelegt": "2026-08-14",
+  "aktion": {
+    "name": "AIDA Herbst Deals",
+    "von": "2026-08-13",
+    "bis": "2026-09-07",
+    "nachlass_bis": 300
+  }
+}

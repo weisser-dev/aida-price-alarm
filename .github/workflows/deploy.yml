@@ -6,10 +6,11 @@ on:
     branches:
       - '**'
     paths:
-      - 'src/**'
-      - 'public/**'
-      - 'package.json'
-      - 'package-lock.json'
+      - 'aida_watch.py'
+      - 'server.py'
+      - 'config.json'
+      - 'web/**'
+      - 'vorgaben/**'
       - 'Dockerfile'
       - '.dockerignore'
       - 'docker-compose.yml'
@@ -23,34 +24,42 @@ jobs:
       DEPLOY_DIR: /opt/aida-price-alarm
       PROJECT: aida-price-alarm
       BACKUP_DIR: /opt/backups/aida
-
       # App config (non-secret)
       APP_PORT: '3000'
       APP_BASE_URL: https://aida.weisser.dev
-      USE_MOCK: 'false'
-      AIDA_API_URL: ''
-
+      TZ: Europe/Berlin
+      # Messtakt: alle 4 Stunden zur Minute 07 (00:07, 04:07, 08:07, ...)
+      LAUF_INTERVALL_STUNDEN: '4'
+      LAUF_OFFSET_MINUTEN: '7'
+      MINDESTABSTAND_SEKUNDEN: '60'
       # SMTP via Strato (non-secret parts)
       SMTP_HOST: smtp.strato.de
       SMTP_PORT: '465'
       SMTP_SECURE: 'true'
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          node-version: 20
-          cache: 'npm'
+          python-version: '3.12'
 
-      - name: Validate dependencies install
-        run: npm ci
+      # Qualitäts-Gate: syntaktisch heile Dateien und ein Selbsttest der
+      # Auswertung ohne jeden Netzzugriff. Bricht das ab, wird nicht deployt.
+      - name: Syntax- und Logikprüfung
+        run: |
+          python3 -m compileall -q aida_watch.py server.py
+          python3 -c "import json; json.load(open('config.json'))"
+          python3 -c "import json,glob; [json.load(open(f)) for f in glob.glob('vorgaben/reisen/*.json')]"
+          python3 selbsttest.py
 
       - name: Create deployment archive
         run: |
           tar czf aida-deploy.tgz \
-            src public package.json package-lock.json \
+            aida_watch.py server.py config.json selbsttest.py \
+            web vorgaben \
             Dockerfile .dockerignore docker-compose.yml
 
       - name: Upload bundle to server
@@ -62,7 +71,7 @@ jobs:
           source: "aida-deploy.tgz"
           target: "/tmp"
 
-      - name: Deploy on server with SQLite backup
+      - name: Deploy on server with data backup
         uses: appleboy/ssh-action@v1.2.0
         env:
           DEPLOY_DIR: ${{ env.DEPLOY_DIR }}
@@ -70,66 +79,80 @@ jobs:
           BACKUP_DIR: ${{ env.BACKUP_DIR }}
           APP_PORT: ${{ env.APP_PORT }}
           APP_BASE_URL: ${{ env.APP_BASE_URL }}
-          USE_MOCK: ${{ env.USE_MOCK }}
-          AIDA_API_URL: ${{ env.AIDA_API_URL }}
+          TZ: ${{ env.TZ }}
+          LAUF_INTERVALL_STUNDEN: ${{ env.LAUF_INTERVALL_STUNDEN }}
+          LAUF_OFFSET_MINUTEN: ${{ env.LAUF_OFFSET_MINUTEN }}
+          MINDESTABSTAND_SEKUNDEN: ${{ env.MINDESTABSTAND_SEKUNDEN }}
           SMTP_HOST: ${{ env.SMTP_HOST }}
           SMTP_PORT: ${{ env.SMTP_PORT }}
           SMTP_SECURE: ${{ env.SMTP_SECURE }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_AN: ${{ secrets.MAIL_AN }}
+          NTFY_URL: ${{ secrets.NTFY_URL }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: DEPLOY_DIR,PROJECT,BACKUP_DIR,APP_PORT,APP_BASE_URL,USE_MOCK,AIDA_API_URL,SMTP_HOST,SMTP_PORT,SMTP_SECURE,SMTP_USER,SMTP_PASS
+          envs: DEPLOY_DIR,PROJECT,BACKUP_DIR,APP_PORT,APP_BASE_URL,TZ,LAUF_INTERVALL_STUNDEN,LAUF_OFFSET_MINUTEN,MINDESTABSTAND_SEKUNDEN,SMTP_HOST,SMTP_PORT,SMTP_SECURE,SMTP_USER,SMTP_PASS,MAIL_AN,NTFY_URL,NTFY_TOKEN
           script: |
             set -e
-
             # Strato erfordert From == authentifizierter Benutzer.
             export SMTP_FROM="AIDA Preisalarm <${SMTP_USER}>"
+            # Fällt MAIL_AN weg, geht die Meldung an den SMTP-Benutzer selbst.
+            if [ -z "$MAIL_AN" ]; then export MAIL_AN="$SMTP_USER"; fi
 
-            # ---- SQLite backup (skip if no existing DB) ----
-            if [ -f "$DEPLOY_DIR/data/aida.db" ]; then
-              echo "Creating SQLite backup via online .backup…"
+            # ---- Sicherung der Messreihen (überspringen, wenn noch keine da) ----
+            if [ -d "$DEPLOY_DIR/data" ]; then
+              echo ">>> Sichere Messreihen"
               sudo mkdir -p "$BACKUP_DIR"
               TS=$(date +"%Y%m%d_%H%M%S")
-              sudo docker run --rm \
-                -v "$DEPLOY_DIR/data:/data:ro" \
-                -v "$BACKUP_DIR:/backup" \
-                alpine:3.20 sh -lc "apk add --no-cache sqlite >/dev/null && sqlite3 /data/aida.db \".backup '/backup/aida_${TS}.db'\" && gzip -9 /backup/aida_${TS}.db"
-
-              # Keep last 10 backups
+              sudo tar czf "$BACKUP_DIR/aida_${TS}.tgz" -C "$DEPLOY_DIR" data
+              # die letzten 10 behalten
               cd "$BACKUP_DIR"
-              ls -1t aida_*.db.gz 2>/dev/null | tail -n +11 | xargs -r rm -f || true
+              ls -1t aida_*.tgz 2>/dev/null | tail -n +11 | xargs -r sudo rm -f || true
               cd - >/dev/null
-              echo "Backup completed: $BACKUP_DIR/aida_${TS}.db.gz"
+              echo "Sicherung: $BACKUP_DIR/aida_${TS}.tgz"
             else
-              echo "No existing database at $DEPLOY_DIR/data/aida.db — skipping backup."
+              echo "Noch keine Daten unter $DEPLOY_DIR/data — Sicherung übersprungen."
             fi
 
-            # ---- Stop the old stack ----
+            # ---- Alten Stapel stoppen ----
             sudo mkdir -p "$DEPLOY_DIR"
             if [ -f "$DEPLOY_DIR/docker-compose.yml" ]; then
               ( cd "$DEPLOY_DIR" && sudo docker compose -p "$PROJECT" down --remove-orphans ) || true
             fi
 
-            # ---- Stage out persistent data, replace deploy dir ----
+            # ---- Daten beiseite, Verzeichnis ersetzen, Daten zurück ----
             STAGING="$(mktemp -d)"
             if [ -d "$DEPLOY_DIR/data" ]; then sudo mv "$DEPLOY_DIR/data" "$STAGING/data"; fi
-
             sudo rm -rf "$DEPLOY_DIR"
             sudo mkdir -p "$DEPLOY_DIR"
             sudo tar xzf /tmp/aida-deploy.tgz -C "$DEPLOY_DIR"
-
             if [ -d "$STAGING/data" ]; then sudo rm -rf "$DEPLOY_DIR/data"; sudo mv "$STAGING/data" "$DEPLOY_DIR/data"; fi
             sudo rm -rf "$STAGING"
 
-            # data dir muss vom non-root "node" user (uid 1000) im Container schreibbar sein.
+            # Das Datenverzeichnis muss dem non-root Benutzer (uid 1000) im
+            # Container gehören, sonst kann er die Messreihen nicht schreiben.
             sudo mkdir -p "$DEPLOY_DIR/data"
             sudo chown -R 1000:1000 "$DEPLOY_DIR/data"
 
             cd "$DEPLOY_DIR"
             sudo -E docker compose -p "$PROJECT" up -d --build --remove-orphans
-
             sudo docker image prune -f
-            echo "Deployment completed successfully!"
+
+            # ---- Nachsehen, ob er auch wirklich antwortet ----
+            echo ">>> Warte auf Gesundheitsmeldung"
+            for i in $(seq 1 30); do
+              if sudo docker exec "$PROJECT" wget -qO- "http://127.0.0.1:${APP_PORT}/api/gesundheit" >/dev/null 2>&1; then
+                echo "Container antwortet."
+                sudo docker compose -p "$PROJECT" logs --tail 20 aida-app || true
+                echo "Deployment completed successfully!"
+                exit 0
+              fi
+              sleep 3
+            done
+            echo "FEHLER: Container antwortet nicht. Protokoll:"
+            sudo docker compose -p "$PROJECT" logs --tail 60 aida-app || true
+            exit 1

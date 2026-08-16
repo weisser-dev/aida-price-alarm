@@ -1,9 +1,9 @@
-node_modules/
+data/
+__pycache__/
+*.pyc
+*.log
 .env
 .env.local
-data/*.db
-data/*.db-journal
-data/*.db-wal
-data/*.db-shm
-*.log
 .DS_Store
+dashboard.html
+docker-compose.override.yml

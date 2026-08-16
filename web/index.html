@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIDA-Überwachung</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0:#f4f3f0; --surface-1:#fcfcfb; --surface-2:#f0efec;
+    --border:#dedcd6; --grid:#e7e5e0;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#7c7a74;
+    --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a;
+    --seq-450:#2a78d6;
+    --critical:#c02a29; --good:#006b00; --warn:#9a6a00;
+    --critical-bg:#fdecec; --good-bg:#eaf5ea; --warn-bg:#fdf4e3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0:#121211; --surface-1:#1a1a19; --surface-2:#242422;
+      --border:#34342f; --grid:#2e2e2a;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#918f85;
+      --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70;
+      --seq-450:#3987e5;
+      --critical:#e66767; --good:#5fbf5f; --warn:#d9a441;
+      --critical-bg:#2e1a1a; --good-bg:#16240f; --warn-bg:#2b2314;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-0:#121211; --surface-1:#1a1a19; --surface-2:#242422;
+    --border:#34342f; --grid:#2e2e2a;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#918f85;
+    --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70;
+    --seq-450:#3987e5;
+    --critical:#e66767; --good:#5fbf5f; --warn:#d9a441;
+    --critical-bg:#2e1a1a; --good-bg:#16240f; --warn-bg:#2b2314;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin:0; padding:22px 20px 70px; background:var(--surface-0); color:var(--text-primary);
+    font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1080px; margin:0 auto; }
+
+  header { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:16px; }
+  h1 { font-size:21px; margin:0 0 4px; letter-spacing:-0.01em; }
+  .sub { color:var(--text-secondary); font-size:13.5px; }
+  .stand { color:var(--text-muted); font-size:12.5px; margin-top:6px; }
+  .kopfaktionen { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+
+  button { font:inherit; cursor:pointer; }
+  .btn { background:var(--surface-1); border:1px solid var(--border); color:var(--text-secondary);
+    border-radius:8px; padding:7px 12px; font-size:13px; white-space:nowrap; }
+  .btn:hover:not(:disabled) { color:var(--text-primary); }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .btn.stark { background:var(--text-primary); color:var(--surface-1); border-color:var(--text-primary); }
+  .btn.stark:hover:not(:disabled) { opacity:.86; }
+
+  .reiter { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px; }
+  .reiter button { background:var(--surface-1); border:1px solid var(--border); color:var(--text-secondary);
+    border-radius:999px; padding:6px 14px; font-size:13px; }
+  .reiter button[aria-pressed="true"] { background:var(--text-primary); color:var(--surface-1);
+    border-color:var(--text-primary); }
+  .reiter button.beendet { text-decoration:line-through; opacity:.65; }
+
+  .banner { border-radius:10px; padding:12px 14px; margin-bottom:18px; font-size:14px;
+    display:flex; gap:10px; align-items:flex-start; border:1px solid; }
+  .banner .ico { font-weight:700; flex:none; }
+  .banner.crit { background:var(--critical-bg); border-color:var(--critical); color:var(--critical); }
+  .banner.ok { background:var(--good-bg); border-color:var(--good); color:var(--good); }
+  .banner.warn { background:var(--warn-bg); border-color:var(--warn); color:var(--warn); }
+  .banner ul { margin:4px 0 0; padding-left:18px; }
+
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:12px; margin-bottom:20px; }
+  .tile { background:var(--surface-1); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+  .tile .lab { font-size:12px; color:var(--text-secondary); margin-bottom:6px; }
+  .tile .val { font-size:27px; font-weight:600; letter-spacing:-0.02em; line-height:1.15; }
+  .tile .val small { display:block; font-size:12.5px; font-weight:400; color:var(--text-secondary);
+    margin-top:3px; letter-spacing:0; }
+  .tile .delta { font-size:12.5px; color:var(--text-muted); margin-top:5px; }
+  .tile .delta.up { color:var(--critical); }
+  .tile .delta.down { color:var(--good); }
+
+  .card { background:var(--surface-1); border:1px solid var(--border); border-radius:12px;
+    padding:16px 18px 12px; margin-bottom:18px; }
+  .card h2 { font-size:15px; margin:0 0 2px; font-weight:600; }
+  .card .note { font-size:12.5px; color:var(--text-muted); margin:0 0 12px; }
+
+  .toolbar { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 12px; }
+  .toolbar button { background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);
+    border-radius:999px; padding:5px 12px; font-size:12.5px; }
+  .toolbar button[aria-pressed="true"] { background:var(--text-primary); color:var(--surface-1);
+    border-color:var(--text-primary); }
+
+  .legend { display:flex; gap:16px; flex-wrap:wrap; font-size:12.5px; color:var(--text-secondary); margin-top:4px; }
+  .legend span.k { display:inline-flex; align-items:center; gap:6px; }
+  .legend i { width:10px; height:10px; border-radius:3px; display:inline-block; }
+
+  figure { margin:0; position:relative; }
+  svg { display:block; width:100%; height:auto; overflow:visible; }
+  .tt { position:absolute; pointer-events:none; opacity:0; transition:opacity .08s;
+    background:var(--surface-1); border:1px solid var(--border); border-radius:8px;
+    padding:8px 10px; font-size:12.5px; box-shadow:0 6px 18px rgba(0,0,0,.14);
+    white-space:nowrap; z-index:5; color:var(--text-primary); }
+  .tt .row { display:flex; gap:8px; align-items:center; justify-content:space-between; margin-top:3px; }
+  .tt i { width:8px; height:8px; border-radius:2px; display:inline-block; }
+
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { text-align:right; padding:7px 8px; border-bottom:1px solid var(--grid); white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  thead th { color:var(--text-secondary); font-weight:500; font-size:12px; }
+  tbody tr.hi td { background:var(--surface-2); font-weight:600; }
+  td.none { color:var(--text-muted); }
+  .scroller { overflow-x:auto; }
+  details { margin-top:10px; }
+  details summary { cursor:pointer; font-size:12.5px; color:var(--text-secondary); }
+
+  .feld { display:flex; flex-direction:column; gap:4px; font-size:12.5px; color:var(--text-secondary); }
+  .feld input, .feld select { font:inherit; font-size:14px; padding:7px 9px; border-radius:8px;
+    border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); }
+  .zeile { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+  .katliste { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:8px; margin:12px 0; }
+  .katliste label { display:flex; gap:8px; align-items:baseline; background:var(--surface-2);
+    border:1px solid var(--border); border-radius:9px; padding:9px 11px; font-size:13px; cursor:pointer; }
+  .katliste .rest { color:var(--text-muted); font-size:12px; }
+
+  #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(12px);
+    background:var(--text-primary); color:var(--surface-1); padding:11px 16px; border-radius:10px;
+    font-size:13.5px; opacity:0; transition:.18s; pointer-events:none; z-index:50; max-width:80vw; }
+  #toast.an { opacity:1; transform:translateX(-50%) translateY(0); }
+  #toast.schlecht { background:var(--critical); color:#fff; }
+
+  .rat { border-radius:12px; padding:16px 18px; margin-bottom:18px; border:1px solid; }
+  .rat.crit { background:var(--critical-bg); border-color:var(--critical); }
+  .rat.warn { background:var(--warn-bg);     border-color:var(--warn); }
+  .rat.ok   { background:var(--good-bg);     border-color:var(--good); }
+  .rat .kopf { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:4px; }
+  .rat h2 { font-size:17px; margin:0; font-weight:650; }
+  .rat.crit h2 { color:var(--critical); } .rat.warn h2 { color:var(--warn); } .rat.ok h2 { color:var(--good); }
+  .rat .stufe { font-size:11.5px; text-transform:uppercase; letter-spacing:.06em;
+    padding:2px 8px; border-radius:999px; border:1px solid currentColor; }
+  .rat.crit .stufe { color:var(--critical); } .rat.warn .stufe { color:var(--warn); } .rat.ok .stufe { color:var(--good); }
+  .rat ul { margin:8px 0 0; padding-left:18px; font-size:13.5px; color:var(--text-primary); }
+  .rat ul li { margin-bottom:3px; }
+  .rat .fuss { font-size:12px; color:var(--text-muted); margin-top:10px; }
+  .kennz { display:flex; gap:18px; flex-wrap:wrap; margin-top:10px; font-size:12.5px; color:var(--text-secondary); }
+  .kennz b { color:var(--text-primary); font-weight:600; }
+
+  footer { color:var(--text-muted); font-size:12.5px; margin-top:26px; line-height:1.7; }
+  footer a { color:var(--series-1); }
+  .laedt { opacity:.55; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<script id="daten" type="application/json">/*__DATEN__*/null</script>
+<div id="app"></div>
+</div>
+<div id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  // Der Platzhalter ist absichtlich kein gueltiges JSON: schlaegt das Parsen fehl,
+  // laeuft die Seite am Server (LIVE). Nur die statische Momentaufnahme hat echte Daten.
+  var EINGEBETTET = null;
+  try { EINGEBETTET = JSON.parse(document.getElementById("daten").textContent); }
+  catch (e) { EINGEBETTET = null; }
+  var LIVE = !EINGEBETTET;              // mit Server? dann kann geklickt werden
+  var D = EINGEBETTET;                  // aktueller Status
+  var app = document.getElementById("app");
+  var aktiverCode = null;
+  var beschaeftigt = false;
+
+  // ------------------------------------------------------------ Helfer
+  function num(v) { if (v === "" || v == null) return null; var n = +v; return isFinite(n) ? n : null; }
+  function eur(n) { return n == null ? "–" : n.toLocaleString("de-DE") + " €"; }
+  function dt(s) { var p = s.split("-"); return p[2] + "." + p[1] + "."; }
+  function dtLang(s) { if (!s) return "–"; var p = s.split("-"); return p[2] + "." + p[1] + "." + p[0]; }
+  function heute() { var d = new Date(); return d.getFullYear() + "-" +
+    String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  function el(tag, attrs, kids) {
+    var e = document.createElement(tag);
+    for (var k in (attrs || {})) {
+      if (k === "html") e.innerHTML = attrs[k];
+      else if (k === "text") e.textContent = attrs[k];
+      else if (k.slice(0, 2) === "on") e[k] = attrs[k];
+      else if (attrs[k] != null) e.setAttribute(k, attrs[k]);
+    }
+    (kids || []).forEach(function (c) { if (c) e.appendChild(c); });
+    return e;
+  }
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+  var toastZeit;
+  function toast(text, schlecht) {
+    var t = document.getElementById("toast");
+    t.textContent = text;
+    t.className = "an" + (schlecht ? " schlecht" : "");
+    clearTimeout(toastZeit);
+    toastZeit = setTimeout(function () { t.className = ""; }, schlecht ? 7000 : 3800);
+  }
+
+  function api(pfad, koerper) {
+    return fetch(pfad, {
+      method: koerper ? "POST" : "GET",
+      headers: koerper ? { "Content-Type": "application/json" } : {},
+      body: koerper ? JSON.stringify(koerper) : undefined
+    }).then(function (r) {
+      return r.json().catch(function () { throw new Error("Server antwortet nicht mit JSON."); })
+        .then(function (j) {
+          if (!r.ok || j.ok === false) throw new Error(j.fehler || ("HTTP " + r.status));
+          return j;
+        });
+    });
+  }
+
+  function beschaeftigtSetzen(an) {
+    beschaeftigt = an;
+    app.classList.toggle("laedt", an);
+    [].forEach.call(app.querySelectorAll("button"), function (b) {
+      if (b.dataset.immer !== "1") b.disabled = an;
+    });
+  }
+
+  // ------------------------------------------------------------ Diagramme
+  var NS = "http://www.w3.org/2000/svg";
+  function s(tag, a) { var e = document.createElementNS(NS, tag); for (var k in a) e.setAttribute(k, a[k]); return e; }
+
+  function ticks(min, max, n) {
+    if (min === max) { min -= 1; max += 1; }
+    var span = max - min, roh = span / n, mag = Math.pow(10, Math.floor(Math.log10(roh)));
+    var norm = roh / mag, schritt = (norm >= 5 ? 10 : norm >= 2 ? 5 : norm >= 1 ? 2 : 1) * mag;
+    var out = [], v = Math.ceil(min / schritt) * schritt;
+    for (; v <= max + 1e-9; v += schritt) out.push(+v.toFixed(6));
+    return out;
+  }
+
+  function zeitDiagramm(ziel, labels, serien, opt) {
+    opt = opt || {};
+    ziel.innerHTML = "";
+    var fig = el("figure"), tip = el("div", { class: "tt" });
+    var B = { l: 56, t: 14, r: 90, b: 30 }, W = 900, H = opt.hoehe || 260;
+    var box = { l: B.l, t: B.t, w: W - B.l - B.r, h: H - B.t - B.b };
+    var svg = s("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": opt.aria || "Verlauf" });
+    var n = labels.length;
+    var xs = function (i) { return n === 1 ? box.l + box.w / 2 : box.l + box.w * i / (n - 1); };
+
+    var gestapelt = serien.length && serien[0].stapeln;
+    var oben = [];
+    if (gestapelt) {
+      for (var i = 0; i < n; i++) {
+        var acc = 0; oben[i] = [];
+        serien.forEach(function (se) { acc += (se.werte[i] || 0); oben[i].push(acc); });
+      }
+    }
+    var alle = [];
+    if (gestapelt) { oben.forEach(function (r) { alle.push(r[r.length - 1]); }); alle.push(0); }
+    else serien.forEach(function (se) { se.werte.forEach(function (v) { if (v != null) alle.push(v); }); });
+    if (!alle.length) alle = [0, 1];
+    var min = Math.min.apply(null, alle), max = Math.max.apply(null, alle);
+    if (opt.nullBasis) min = 0;
+    var pad = (max - min) * 0.18 || Math.max(1, max * 0.05);
+    var lo = opt.nullBasis ? 0 : min - pad, hi = max + pad;
+    var ys = function (v) { return box.t + box.h - (v - lo) / (hi - lo || 1) * box.h; };
+
+    var g = s("g", {}); svg.appendChild(g);
+    ticks(lo, hi, 4).filter(function (v) { return v >= lo && v <= hi; }).forEach(function (v) {
+      g.appendChild(s("line", { x1: box.l, y1: ys(v), x2: box.l + box.w, y2: ys(v),
+        stroke: css("--grid"), "stroke-width": 1 }));
+      g.appendChild(s("text", { x: box.l - 8, y: ys(v) + 4, "text-anchor": "end",
+        fill: css("--text-muted"), "font-size": 11 })).textContent = (opt.fmtY || String)(v);
+    });
+    var jeder = Math.max(1, Math.ceil(n / 8));
+    labels.forEach(function (_, i) {
+      if (i % jeder !== 0 && i !== n - 1) return;
+      g.appendChild(s("text", { x: xs(i), y: box.t + box.h + 18, "text-anchor": "middle",
+        fill: css("--text-muted"), "font-size": 11 })).textContent = dt(labels[i]);
+    });
+
+    var beschriftungen = [];
+    var reihenfolge = serien.map(function (_, i) { return i; });
+    if (!gestapelt) reihenfolge.reverse();
+    reihenfolge.forEach(function (si) {
+      var se = serien[si], farbe = se.farbe;
+      if (gestapelt) {
+        var unten = [], obenR = [];
+        for (var i = 0; i < n; i++) {
+          obenR.push([xs(i), ys(oben[i][si])]);
+          unten.push([xs(i), ys(si === 0 ? 0 : oben[i][si - 1])]);
+        }
+        if (n > 1) {
+          var d = "M" + obenR.map(function (p) { return p[0] + "," + p[1]; }).join("L") +
+                  "L" + unten.reverse().map(function (p) { return p[0] + "," + p[1]; }).join("L") + "Z";
+          g.appendChild(s("path", { d: d, fill: farbe, "fill-opacity": .88,
+            stroke: css("--surface-1"), "stroke-width": 2, "stroke-linejoin": "round" }));
+        } else {
+          var o0 = ys(oben[0][si]), u0 = ys(si === 0 ? 0 : oben[0][si - 1]);
+          g.appendChild(s("rect", { x: xs(0) - 26, y: Math.min(o0, u0), width: 52,
+            height: Math.max(2, Math.abs(u0 - o0)), fill: farbe, "fill-opacity": .88,
+            stroke: css("--surface-1"), "stroke-width": 2, rx: 2 }));
+        }
+      } else {
+        var pts = [];
+        se.werte.forEach(function (v, i) { if (v != null) pts.push([xs(i), ys(v)]); });
+        if (pts.length > 1) g.appendChild(s("path", {
+          d: "M" + pts.map(function (p) { return p[0] + "," + p[1]; }).join("L"),
+          fill: "none", stroke: farbe, "stroke-width": 2, "stroke-linecap": "round",
+          "stroke-linejoin": "round" }));
+        pts.forEach(function (p) {
+          g.appendChild(s("circle", { cx: p[0], cy: p[1], r: pts.length > 12 ? 0 : 4.5,
+            fill: farbe, stroke: css("--surface-1"), "stroke-width": 2 }));
+        });
+      }
+      var letzterWert = null, letzterIdx = -1;
+      se.werte.forEach(function (v, i) { if (v != null) { letzterWert = v; letzterIdx = i; } });
+      if (letzterWert != null && serien.length <= 4) {
+        beschriftungen.push({
+          y: gestapelt ? (ys(oben[letzterIdx][si]) + ys(si === 0 ? 0 : oben[letzterIdx][si - 1])) / 2 + 4
+                       : ys(letzterWert) + 4,
+          text: (opt.fmtY || String)(letzterWert), farbe: farbe });
+      }
+    });
+    beschriftungen.sort(function (a, b) { return a.y - b.y; });
+    for (var bi = 1; bi < beschriftungen.length; bi++) {
+      if (beschriftungen[bi].y - beschriftungen[bi - 1].y < 15)
+        beschriftungen[bi].y = beschriftungen[bi - 1].y + 15;
+    }
+    beschriftungen.forEach(function (b) {
+      g.appendChild(s("circle", { cx: box.l + box.w + 15, cy: b.y - 4, r: 3.5, fill: b.farbe }));
+      g.appendChild(s("text", { x: box.l + box.w + 23, y: b.y, fill: css("--text-secondary"),
+        "font-size": 11.5 })).textContent = b.text;
+    });
+
+    var kreuz = s("line", { x1: 0, y1: box.t, x2: 0, y2: box.t + box.h, stroke: css("--text-muted"),
+      "stroke-width": 1, "stroke-dasharray": "3 3", opacity: 0 });
+    svg.appendChild(kreuz);
+    var treffer = s("rect", { x: box.l - 10, y: box.t, width: box.w + 20, height: box.h,
+      fill: "transparent", style: "cursor:crosshair" });
+    svg.appendChild(treffer);
+    treffer.addEventListener("mousemove", function (ev) {
+      var r = svg.getBoundingClientRect();
+      var i = n === 1 ? 0 : Math.round(((ev.clientX - r.left) / r.width * W - box.l) / (box.w / (n - 1)));
+      i = Math.max(0, Math.min(n - 1, i));
+      kreuz.setAttribute("x1", xs(i)); kreuz.setAttribute("x2", xs(i)); kreuz.setAttribute("opacity", 1);
+      var html = "<b>" + dtLang(labels[i]) + "</b>";
+      serien.forEach(function (se) {
+        html += '<div class="row"><span><i style="background:' + se.farbe + '"></i> ' + se.name +
+                "</span><b>" + (se.werte[i] == null ? "–" : (opt.fmtY || String)(se.werte[i])) + "</b></div>";
+      });
+      if (gestapelt && serien.length > 1) {
+        var sum = serien.reduce(function (a, se) { return a + (se.werte[i] || 0); }, 0);
+        html += '<div class="row" style="border-top:1px solid var(--border);margin-top:5px;padding-top:4px">' +
+                "<span>gesamt</span><b>" + (opt.fmtY || String)(sum) + "</b></div>";
+      }
+      tip.innerHTML = html; tip.style.opacity = 1;
+      var fr = fig.getBoundingClientRect();
+      tip.style.left = Math.min(Math.max(6, xs(i) / W * fr.width + 14), fr.width - tip.offsetWidth - 6) + "px";
+      tip.style.top = "8px";
+    });
+    treffer.addEventListener("mouseleave", function () {
+      tip.style.opacity = 0; kreuz.setAttribute("opacity", 0);
+    });
+
+    fig.appendChild(svg); fig.appendChild(tip); ziel.appendChild(fig);
+    if (serien.length > 1) {
+      var lg = el("div", { class: "legend" });
+      serien.forEach(function (se) {
+        lg.appendChild(el("span", { class: "k", html: '<i style="background:' + se.farbe + '"></i>' + se.name }));
+      });
+      ziel.appendChild(lg);
+    }
+  }
+
+  function deckDiagramm(ziel, decks) {
+    ziel.innerHTML = "";
+    var eintraege = Object.keys(decks).map(function (d) { return [d, decks[d]]; })
+      .sort(function (a, b) { return (+a[0] || 99) - (+b[0] || 99); });
+    if (!eintraege.length) { ziel.appendChild(el("p", { class: "note", text: "Keine Deckdaten." })); return; }
+    var max = Math.max.apply(null, eintraege.map(function (e) { return e[1]; }));
+    var zh = 26, W = 900, L = 62, R = 46, H = eintraege.length * zh + 10;
+    var svg = s("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Freie Kabinen nach Deck" });
+    var fig = el("figure"), tip = el("div", { class: "tt" }), farbe = css("--seq-450");
+    eintraege.forEach(function (e, i) {
+      var y = i * zh + 6, br = (W - L - R) * e[1] / max;
+      svg.appendChild(s("text", { x: L - 10, y: y + 13, "text-anchor": "end",
+        fill: css("--text-secondary"), "font-size": 12 })).textContent = "Deck " + e[0];
+      var r = s("rect", { x: L, y: y, width: Math.max(3, br), height: zh - 10, fill: farbe, rx: 4 });
+      svg.appendChild(r);
+      svg.appendChild(s("text", { x: L + Math.max(3, br) + 8, y: y + 13,
+        fill: css("--text-secondary"), "font-size": 12 })).textContent = e[1];
+      r.addEventListener("mousemove", function (ev) {
+        tip.innerHTML = "<b>Deck " + e[0] + "</b><div class='row'><span>freie Kabinen</span><b>" + e[1] + "</b></div>";
+        tip.style.opacity = 1;
+        var fr = fig.getBoundingClientRect();
+        tip.style.left = Math.min(ev.clientX - fr.left + 12, fr.width - 160) + "px";
+        tip.style.top = (ev.clientY - fr.top + 12) + "px";
+      });
+      r.addEventListener("mouseleave", function () { tip.style.opacity = 0; });
+    });
+    fig.appendChild(svg); fig.appendChild(tip); ziel.appendChild(fig);
+  }
+
+  // ------------------------------------------------------------ Aufbau
+  function eintragFuer(code) {
+    var t = (D.reisen || []).filter(function (x) { return x.reise.code === code; });
+    return t[0] || (D.reisen || [])[0] || null;
+  }
+
+  function zeichne() {
+    app.innerHTML = "";
+    if (!D || !D.reisen) { app.appendChild(el("p", { text: "Keine Daten." })); return; }
+    if (!aktiverCode || !eintragFuer(aktiverCode)) {
+      aktiverCode = D.reisen.length ? D.reisen[0].reise.code : null;
+    }
+    kopf();
+    if (D.reisen.length) { reiter(); reiseAnsicht(eintragFuer(aktiverCode)); }
+    else app.appendChild(el("div", { class: "card" }, [
+      el("h2", { text: "Noch keine Reise angelegt" }),
+      el("p", { class: "note", text: "Unten den Reisecode eintragen – z. B. CO07261003." })]));
+    neueReiseKarte();
+    fuss();
+  }
+
+  function kopf() {
+    var aktionen = el("div", { class: "kopfaktionen" });
+    if (LIVE) {
+      aktionen.appendChild(el("button", { class: "btn stark", text: "Kabinen & Preise aktualisieren",
+        onclick: function () { aktualisieren(aktiverCode); } }));
+      if ((D.reisen || []).length > 1)
+        aktionen.appendChild(el("button", { class: "btn", text: "alle Reisen",
+          onclick: function () { aktualisieren("__alle"); } }));
+    }
+    aktionen.appendChild(el("button", { class: "btn", text: "Ansicht wechseln", "data-immer": "1",
+      onclick: function () {
+        var cur = document.documentElement.getAttribute("data-theme");
+        var dunkel = cur === "dark" || (cur !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dunkel ? "light" : "dark");
+        zeichne();
+      } }));
+    app.appendChild(el("header", {}, [
+      el("div", {}, [
+        el("h1", { text: "AIDA-Überwachung" }),
+        el("div", { class: "sub", text: LIVE
+          ? "Kabinen und Preise, so oft du magst – der Knopf holt die aktuellen Werte."
+          : "Momentaufnahme ohne Server – die Knöpfe fehlen, weil keine Verbindung besteht." }),
+        el("div", { class: "stand", text: "Stand der Daten: " + (D.stand || "–") })
+      ]), aktionen]));
+  }
+
+  function reiter() {
+    if (D.reisen.length < 2) return;
+    var bar = el("div", { class: "reiter" });
+    D.reisen.forEach(function (e) {
+      bar.appendChild(el("button", {
+        class: e.laeuft ? "" : "beendet",
+        "aria-pressed": String(e.reise.code === aktiverCode),
+        text: (e.reise.schiff || e.reise.code) + " · " + dtLang(e.reise.von),
+        onclick: function () { aktiverCode = e.reise.code; zeichne(); } }));
+    });
+    app.appendChild(bar);
+  }
+
+  // ------------------------------------------------------------ Eine Reise
+  function reiseAnsicht(E) {
+    if (!E) return;
+    var R = E.reise, L = E.lage, FLUG = E.flug || {}, FH = Object.keys(FLUG);
+    var GR = (L.gruppen && L.gruppen.length) ? L.gruppen
+      : (R.gruppen || []).map(function (g, i) { return { name: g.name, codes: g.codes, primaer: i === 0 }; });
+    var HAUPT = GR[0] || { name: "–", codes: [] };
+    var KEY = HAUPT.name + "|" + (R.tarif || "LIGHT");
+    var P = E.preise || [], K = E.kabinen || [];
+    var pH = P.length ? P[P.length - 1] : null, pV = P.length > 1 ? P[P.length - 2] : null,
+        pE = P.length ? P[0] : null;
+    var personen = (R.reisende || [2, 0, 0]).reduce(function (a, b) { return a + b; }, 0) || 2;
+
+    function pp(v, fh) { return v == null ? null : Math.round((v + FLUG[fh]) / personen); }
+    function reihe(name) {
+      var r = K.filter(function (x) { return x.gruppe === name; });
+      if (!r.length) r = K.filter(function (x) { return !x.gruppe; });
+      return r.slice().sort(function (a, b) { return a.datum < b.datum ? -1 : 1; });
+    }
+    function jsonFeld(z, f) { if (!z || !z[f]) return {}; try { return JSON.parse(z[f]); } catch (e) { return {}; } }
+
+    // ---- Reisekopf
+    var kopfKarte = el("div", { class: "card" }, [
+      el("h2", { text: (R.schiff || "") + " – " + (R.titel || R.code) }),
+      el("p", { class: "note", text: dtLang(R.von) + " – " + dtLang(R.bis) +
+        (R.naechte ? " · " + R.naechte + " Nächte" : "") + " · Reisecode " + R.code +
+        (R.route ? " · " + R.route : "") })
+    ]);
+    var steuer = el("div", { class: "zeile", style: "margin-top:4px" });
+    var bisFeld = el("input", { type: "date", value: R.ueberwachen_bis || "" });
+    steuer.appendChild(el("label", { class: "feld" }, [
+      el("span", { text: "überwachen bis (danach ruht der geplante Lauf)" }), bisFeld]));
+    if (LIVE) {
+      steuer.appendChild(el("button", { class: "btn", text: "Zeitraum speichern", onclick: function () {
+        senden("/api/reise/aendern", { code: R.code, ueberwachen_bis: bisFeld.value },
+          "Überwachung läuft jetzt bis " + (bisFeld.value ? dtLang(bisFeld.value) : "auf Weiteres"));
+      } }));
+      steuer.appendChild(el("button", { class: "btn",
+        text: R.aktiv === false ? "wieder aufnehmen" : "Überwachung pausieren",
+        onclick: function () {
+          senden(R.aktiv === false ? "/api/reise/aendern" : "/api/reise/entfernen",
+            R.aktiv === false ? { code: R.code, aktiv: true } : { code: R.code },
+            R.aktiv === false ? "Wieder aktiv." : "Pausiert. Die Daten bleiben liegen.");
+        } }));
+    }
+    var restText = "";
+    if (R.ueberwachen_bis) {
+      var tage = Math.ceil((new Date(R.ueberwachen_bis + "T23:59:59") - new Date()) / 86400000);
+      restText = tage >= 0 ? "Noch " + tage + " Tage geplante Läufe."
+                           : "Überwachungsende war am " + dtLang(R.ueberwachen_bis) + " – geplante Läufe ruhen.";
+    } else restText = "Kein Ende gesetzt – läuft bis du es änderst.";
+    steuer.appendChild(el("div", { class: "note", style: "margin:0 0 4px", text: restText }));
+    kopfKarte.appendChild(steuer);
+    if (R.zuletzt_geprueft)
+      kopfKarte.appendChild(el("p", { class: "note", style: "margin:10px 0 2px",
+        text: "Zuletzt abgerufen: " + R.zuletzt_geprueft + (R.letzter_fehler ? " · " + R.letzter_fehler : "") }));
+    app.appendChild(kopfKarte);
+
+    // ---- Einschätzung: buchen oder warten?
+    var EIN = E.einschaetzung;
+    if (EIN) {
+      var stufeText = { jetzt: "handeln", bald: "bald entscheiden", abwarten: "entspannt",
+                        weg: "vorbei" }[EIN.stufe] || EIN.stufe;
+      var ratKarte = el("div", { class: "rat " + (EIN.farbe || "ok") });
+      ratKarte.appendChild(el("div", { class: "kopf" }, [
+        el("h2", { text: EIN.titel }),
+        el("span", { class: "stufe", text: stufeText })]));
+      var ul = el("ul");
+      (EIN.signale || []).forEach(function (z) { ul.appendChild(el("li", { text: z })); });
+      ratKarte.appendChild(ul);
+      var kz = EIN.kennzahlen || {};
+      var zahlen = el("div", { class: "kennz" });
+      function kz_(lab, wert) {
+        if (wert == null || wert === "") return;
+        zahlen.appendChild(el("span", { html: lab + ": <b>" + wert + "</b>" }));
+      }
+      kz_("Messungen", kz.messungen);
+      kz_("beobachtet seit", (kz.tage_beobachtet || 0) + " Tagen");
+      if (kz.preis_trend_eur_pro_tag != null)
+        kz_("Preistrend", (kz.preis_trend_eur_pro_tag > 0 ? "+" : "") +
+          kz.preis_trend_eur_pro_tag.toLocaleString("de-DE") + " €/Tag");
+      if (kz.kabinen_trend_pro_tag != null)
+        kz_("Kabinen", (kz.kabinen_trend_pro_tag > 0 ? "+" : "") +
+          kz.kabinen_trend_pro_tag.toLocaleString("de-DE") + "/Tag");
+      kz_("bis Aktionsende", kz.tage_bis_aktionsende != null ? kz.tage_bis_aktionsende + " Tage" : null);
+      kz_("bis Abreise", kz.tage_bis_abreise != null ? kz.tage_bis_abreise + " Tage" : null);
+      ratKarte.appendChild(zahlen);
+      ratKarte.appendChild(el("div", { class: "fuss", text:
+        "Das ist eine regelbasierte Einschätzung aus der eigenen Messreihe, keine Vorhersage – " +
+        "sie kennt weder AIDAs Kontingentplanung noch die Nachfrage. Vertrauen in die Aussage: "
+        + EIN.vertrauen + "." }));
+      app.appendChild(ratKarte);
+    }
+
+    // ---- Banner
+    if (L.alarm) {
+      var ul = el("ul");
+      (L.gruende || []).forEach(function (g) { ul.appendChild(el("li", { text: g })); });
+      ul.appendChild(el("li", { text: "AIDA-Beratung: " + ((D.global.links || {}).beratung || "") }));
+      app.appendChild(el("div", { class: "banner crit" }, [el("span", { class: "ico", text: "▲" }),
+        el("div", {}, [el("b", { text: "Alarm – handeln" }), ul])]));
+    } else {
+      app.appendChild(el("div", { class: "banner ok" }, [el("span", { class: "ico", text: "✓" }),
+        el("div", {}, [el("b", { text: "Ruhige Lage" }),
+          el("div", { text: "Kein Alarmkriterium erfüllt." })])]));
+    }
+
+    // ---- Kacheln
+    var tiles = el("div", { class: "tiles" });
+    function kachel(lab, val, klein, delta, klasse) {
+      var v = el("div", { class: "val" });
+      v.appendChild(document.createTextNode(val));
+      if (klein) v.appendChild(el("small", { text: klein }));
+      var t = el("div", { class: "tile" }, [el("div", { class: "lab", text: lab }), v]);
+      if (delta) t.appendChild(el("div", { class: "delta " + (klasse || ""), text: delta }));
+      tiles.appendChild(t);
+    }
+    GR.forEach(function (g) {
+      var r = reihe(g.name);
+      var kH = r.length ? r[r.length - 1] : null, kV = r.length > 1 ? r[r.length - 2] : null;
+      var frei = kH ? num(kH.gesamt) : null, freiVor = kV ? num(kV.gesamt) : null;
+      kachel("Freie " + g.name, frei == null ? "–" : frei.toLocaleString("de-DE"), "Kabinen",
+        freiVor == null ? "erste Zählung"
+          : (frei === freiVor ? "unverändert zum " + dt(kV.datum)
+            : (frei - freiVor > 0 ? "+" : "") + (frei - freiVor) + " zum " + dt(kV.datum)),
+        freiVor == null ? "" : (frei < freiVor ? "up" : (frei > freiVor ? "down" : "")));
+    });
+    var ph = pH ? num(pH[KEY]) : null, pv = pV ? num(pV[KEY]) : null, pe = pE ? num(pE[KEY]) : null;
+    kachel(HAUPT.name + " " + (R.tarif || "LIGHT"), ph == null ? "kein Preis" : eur(ph),
+      personen + " Pers., ohne Flug",
+      pv == null ? "erste Messung"
+        : (ph === pv ? "unverändert zum " + dt(pV.datum)
+          : (ph - pv > 0 ? "+" : "") + eur(ph - pv) + " zum " + dt(pV.datum)),
+      pv == null ? "" : (ph > pv ? "up" : (ph < pv ? "down" : "")));
+    FH.forEach(function (fh) {
+      var w = pp(ph, fh), we = pp(pe, fh);
+      kachel("pro Person inkl. Flug ab " + fh, w == null ? "–" : eur(w),
+        "Flug " + eur(FLUG[fh]) + " / " + personen + " Pers.",
+        we == null ? "" : (w === we ? "wie bei Beobachtungsbeginn"
+          : (w - we > 0 ? "+" : "") + eur(w - we) + " seit Beginn"),
+        we == null ? "" : (w > we ? "up" : (w < we ? "down" : "")));
+    });
+    app.appendChild(tiles);
+
+    var farben = [css("--series-1"), css("--series-2"), css("--series-3")];
+    function karte(titel, notiz) {
+      var c = el("div", { class: "card" }, [el("h2", { text: titel })]);
+      if (notiz) c.appendChild(el("p", { class: "note", text: notiz }));
+      app.appendChild(c); return c;
+    }
+    function leiste(optionen, aktiv, beiWechsel) {
+      var bar = el("div", { class: "toolbar" });
+      optionen.forEach(function (o) {
+        var b = el("button", { type: "button", text: o.lab, "aria-pressed": String(o.id === aktiv),
+          onclick: function () {
+            [].forEach.call(bar.children, function (x) { x.setAttribute("aria-pressed", "false"); });
+            b.setAttribute("aria-pressed", "true"); beiWechsel(o.id);
+          } });
+        bar.appendChild(b);
+      });
+      return bar;
+    }
+
+    // ---- Kabinenverlauf
+    var c1 = karte("Freie Kabinen im Verlauf",
+      "Gezählt wird, was in der Kabinenwahl wählbar ist – physische Kabinen, unabhängig vom Tarif. Bei einer einzelnen Kategorie gestapelt nach Unterkategorie.");
+    var c1modus = HAUPT.name;
+    var opts = GR.map(function (g) { return { id: g.name, lab: g.name }; });
+    if (GR.length > 1) opts.push({ id: "__alle", lab: "alle im Vergleich" });
+    c1.appendChild(leiste(opts, c1modus, function (id) { c1modus = id; zeichneKabinen(); }));
+    var c1plot = el("div"); c1.appendChild(c1plot);
+    var c1tab = el("div", { class: "scroller", style: "margin-top:14px" }); c1.appendChild(c1tab);
+
+    function zeichneKabinenTabelle() {
+      c1tab.innerHTML = "";
+      var tage = {};
+      K.forEach(function (r) { tage[r.datum] = 1; });
+      var liste = Object.keys(tage).sort().reverse();
+      if (!liste.length) return;
+      var t = el("table");
+      var kopfz = el("tr", {}, [el("th", { text: "Tag" }), el("th", { text: "gemessen" })]);
+      GR.forEach(function (g) { kopfz.appendChild(el("th", { text: g.name })); });
+      t.appendChild(el("thead", {}, [kopfz]));
+      var tb = el("tbody");
+      liste.forEach(function (d) {
+        var uhr = "";
+        var row = el("tr", {});
+        row.appendChild(el("td", { text: dtLang(d) }));
+        var zellen = [];
+        GR.forEach(function (g) {
+          var alle = reihe(g.name);
+          var i = -1;
+          alle.forEach(function (x, j) { if (x.datum === d) i = j; });
+          if (i < 0) { zellen.push(el("td", { class: "none", text: "–" })); return; }
+          uhr = uhr || alle[i].uhrzeit || "";
+          var v = num(alle[i].gesamt);
+          var vor = i > 0 ? num(alle[i - 1].gesamt) : null;
+          var txt = v == null ? "–" : v.toLocaleString("de-DE");
+          if (vor != null && v != null && v !== vor) txt += "  (" + (v - vor > 0 ? "+" : "") + (v - vor) + ")";
+          zellen.push(el("td", { text: txt }));
+        });
+        row.appendChild(el("td", { text: uhr || "–" }));
+        zellen.forEach(function (z) { row.appendChild(z); });
+        tb.appendChild(row);
+      });
+      t.appendChild(tb);
+      c1tab.appendChild(el("p", { class: "note", style: "margin:0 0 6px",
+        text: "Tag für Tag, neueste zuerst. Klammerwert = Veränderung zur vorherigen Messung." }));
+      c1tab.appendChild(t);
+    }
+
+    function zeichneKabinen() {
+      var d = {}; K.forEach(function (r) { d[r.datum] = 1; });
+      var labels = Object.keys(d).sort();
+      if (!labels.length) { c1plot.innerHTML = "<p class='note'>Noch keine Zählung.</p>"; return; }
+      var serien;
+      if (c1modus === "__alle") {
+        serien = GR.map(function (g, i) {
+          return { name: g.name, farbe: farben[i % farben.length],
+            werte: labels.map(function (dd) {
+              var t = reihe(g.name).filter(function (x) { return x.datum === dd; })[0];
+              return t ? num(t.gesamt) : null; }) };
+        });
+      } else {
+        var g = GR.filter(function (x) { return x.name === c1modus; })[0] || HAUPT;
+        serien = (g.codes || []).map(function (code, i) {
+          return { name: code, farbe: farben[i % farben.length], stapeln: true,
+            werte: labels.map(function (dd) {
+              var t = reihe(g.name).filter(function (x) { return x.datum === dd; })[0];
+              var c = jsonFeld(t, "codes"); return c[code] == null ? 0 : c[code]; }) };
+        });
+      }
+      zeitDiagramm(c1plot, labels, serien, { nullBasis: true, hoehe: 250,
+        aria: "Freie Kabinen im Zeitverlauf",
+        fmtY: function (v) { return Math.round(v).toLocaleString("de-DE"); } });
+    }
+
+    // ---- Preisverlauf
+    var c2 = karte("Preisverlauf im Tarif " + (R.tarif || "LIGHT"), null);
+    var modus = "kabine";
+    var modi = [{ id: "kabine", lab: "pro Kabine, ohne Flug" }].concat(
+      FH.map(function (fh) { return { id: fh, lab: "pro Person inkl. Flug ab " + fh }; }));
+    c2.appendChild(leiste(modi, modus, function (id) { modus = id; zeichnePreise(); }));
+    var c2note = el("p", { class: "note" }); c2.appendChild(c2note);
+    var c2plot = el("div"); c2.appendChild(c2plot);
+
+    function zeichnePreise() {
+      var labels = P.map(function (r) { return r.datum; });
+      if (!labels.length) { c2plot.innerHTML = "<p class='note'>Noch keine Messung.</p>"; return; }
+      var reihen = (R.preisreihen && R.preisreihen.length ? R.preisreihen
+        : GR.map(function (g) { return g.name; })).filter(function (v, i, a) { return a.indexOf(v) === i; })
+        .slice(0, 3);
+      var serien = reihen.map(function (kat, i) {
+        return { name: kat, farbe: farben[i % farben.length],
+          werte: P.map(function (r) {
+            var v = num(r[kat + "|" + (R.tarif || "LIGHT")]);
+            return v == null ? null : (modus === "kabine" ? v : pp(v, modus)); }) };
+      });
+      var basis = modus === "kabine"
+        ? "Gesamtpreis pro Kabine für " + personen + " Erwachsene, ohne Flug – so misst euresa-reisen.de."
+        : "Pro Person inklusive Flug ab " + modus + " – so zeigt es aida.de. Gerechnet mit "
+          + eur(FLUG[modus]) + " Flugkosten für " + personen + " Personen (Annahme aus der Konfiguration).";
+      var gleich = [];
+      for (var a = 0; a < serien.length; a++) for (var b = a + 1; b < serien.length; b++) {
+        if (serien[a].werte.length && serien[a].werte.every(function (v, i) { return v === serien[b].werte[i]; }))
+          gleich.push(serien[a].name + " und " + serien[b].name);
+      }
+      if (gleich.length) basis += " " + gleich.join(", ") +
+        " liegen derzeit gleichauf – die Linien decken sich, im Tooltip stehen beide Werte.";
+      c2note.textContent = basis;
+      zeitDiagramm(c2plot, labels, serien, { hoehe: 260, aria: "Preisverlauf",
+        fmtY: function (v) { return Math.round(v).toLocaleString("de-DE") + " €"; } });
+    }
+
+    // ---- Decks
+    var c3 = karte("Freie Kabinen nach Deck",
+      "Momentaufnahme des letzten Laufs – zeigt, wo AIDA im " + (R.tarif || "LIGHT") + "-Tarif zuweisen kann.");
+    var c3modus = HAUPT.name;
+    c3.appendChild(leiste(GR.map(function (g) { return { id: g.name, lab: g.name }; }),
+      c3modus, function (id) { c3modus = id; zeichneDecks(); }));
+    var c3plot = el("div"); c3.appendChild(c3plot);
+    function zeichneDecks() {
+      var r = reihe(c3modus), letzte = r.length ? r[r.length - 1] : null;
+      if (!letzte) { c3plot.innerHTML = "<p class='note'>Noch keine Zählung.</p>"; return; }
+      deckDiagramm(c3plot, jsonFeld(letzte, "decks"));
+    }
+
+    // ---- Preistabelle
+    var c4 = karte("Vollständige Preistabelle",
+      "Gesamtpreis pro Kabine für " + personen + " Erwachsene, ohne Flug. Ein Strich bedeutet: in diesem Tarif nicht mehr buchbar. Klammerwert = Veränderung seit Beobachtungsbeginn.");
+    var c4tab = el("div", { class: "scroller" }); c4.appendChild(c4tab);
+    (function tabelle() {
+      if (!pH) { c4tab.innerHTML = "<p class='note'>Noch keine Messung.</p>"; return; }
+      var kats = [], tars = [];
+      Object.keys(pH).forEach(function (f) {
+        var teil = f.split("|"); if (teil.length !== 2) return;
+        if (kats.indexOf(teil[0]) < 0) kats.push(teil[0]);
+        if (tars.indexOf(teil[1]) < 0) tars.push(teil[1]);
+      });
+      var kanon = (D.global.tarife || []).filter(function (t) { return tars.indexOf(t) >= 0; });
+      if (kanon.length) tars = kanon;
+      // Tarife, die diese Reise gar nicht anbietet, gehören nicht als leere Spalte in die Tabelle
+      tars = tars.filter(function (tar) {
+        return kats.some(function (kat) { return num(pH[kat + "|" + tar]) != null; });
+      });
+      var t = el("table");
+      var tr = el("tr", {}, [el("th", { text: "Kategorie" })]);
+      tars.forEach(function (x) { tr.appendChild(el("th", { text: x })); });
+      t.appendChild(el("thead", {}, [tr]));
+      var tb = el("tbody");
+      kats.forEach(function (kat) {
+        var leer = tars.every(function (tar) { return num(pH[kat + "|" + tar]) == null; });
+        if (leer) return;
+        var row = el("tr", kat === HAUPT.name ? { class: "hi" } : {}, [el("td", { text: kat })]);
+        tars.forEach(function (tar) {
+          var v = num(pH[kat + "|" + tar]), e0 = pE ? num(pE[kat + "|" + tar]) : null;
+          if (v == null) { row.appendChild(el("td", { class: "none", text: "—" })); return; }
+          var txt = eur(v);
+          if (e0 != null && e0 !== v) txt += " (" + (v - e0 > 0 ? "+" : "") + (v - e0) + ")";
+          row.appendChild(el("td", { text: txt }));
+        });
+        tb.appendChild(row);
+      });
+      t.appendChild(tb); c4tab.appendChild(t);
+
+      var det = el("details");
+      det.appendChild(el("summary", { text: "Messreihe als Tabelle" }));
+      var t2 = el("table");
+      var h2 = el("tr", {}, [el("th", { text: "Datum" })]);
+      GR.forEach(function (g) { h2.appendChild(el("th", { text: "frei: " + g.name })); });
+      h2.appendChild(el("th", { text: HAUPT.name + " " + (R.tarif || "LIGHT") }));
+      FH.forEach(function (fh) { h2.appendChild(el("th", { text: "p.P. " + fh })); });
+      t2.appendChild(el("thead", {}, [h2]));
+      var tb2 = el("tbody"), tage = {};
+      P.forEach(function (r) { tage[r.datum] = 1; }); K.forEach(function (r) { tage[r.datum] = 1; });
+      Object.keys(tage).sort().forEach(function (d) {
+        var pr = P.filter(function (r) { return r.datum === d; })[0];
+        var v = pr ? num(pr[KEY]) : null;
+        var row = el("tr", {}, [el("td", { text: dtLang(d) })]);
+        GR.forEach(function (g) {
+          var kr = reihe(g.name).filter(function (r) { return r.datum === d; })[0];
+          row.appendChild(el("td", { text: kr ? num(kr.gesamt).toLocaleString("de-DE") : "–" }));
+        });
+        row.appendChild(el("td", { text: v == null ? (pr ? "kein Preis" : "–") : eur(v) }));
+        FH.forEach(function (fh) { row.appendChild(el("td", { text: v == null ? "–" : eur(pp(v, fh)) })); });
+        tb2.appendChild(row);
+      });
+      t2.appendChild(tb2); det.appendChild(t2); c4tab.appendChild(det);
+    })();
+
+    zeichneKabinen(); zeichneKabinenTabelle(); zeichnePreise(); zeichneDecks();
+
+    // ---- Links
+    var links = el("div", { class: "card" }, [el("h2", { text: "Buchen und gegenprüfen" })]);
+    var p = el("p", { class: "note" });
+    var teile = [];
+    Object.keys(E.links || {}).forEach(function (fh) {
+      teile.push('<a href="' + E.links[fh] + '" target="_blank" rel="noopener">aida.de ab ' + fh + "</a>");
+    });
+    teile.push('<a href="https://euresa-reisen.de/reisesuche/' + R.code + '/" target="_blank" rel="noopener">Preistabelle euresa</a>');
+    teile.push('<a href="https://aida.euresa-reisen.de/' + R.code + '/IND/Kabine" target="_blank" rel="noopener">Kabinenwahl</a>');
+    p.innerHTML = teile.join(" · ") + " · AIDA-Beratung " + ((D.global.links || {}).beratung || "");
+    links.appendChild(p);
+    if (R.notiz) links.appendChild(el("p", { class: "note", text: R.notiz }));
+    app.appendChild(links);
+  }
+
+  // ------------------------------------------------------------ Neue Reise
+  function neueReiseKarte() {
+    if (!LIVE) return;
+    var c = el("div", { class: "card" }, [
+      el("h2", { text: "Weitere Reise überwachen" }),
+      el("p", { class: "note", text: "Reisecode eintragen – der steht in jeder AIDA-URL, z. B. CO07261003. Ich hole Titel, Termin, Preistabelle und die vorhandenen Kabinenkategorien selbst." })
+    ]);
+    var codeFeld = el("input", { type: "text", placeholder: "CO07261003", style: "text-transform:uppercase" });
+    var bisFeld = el("input", { type: "date", value: "" });
+    var zeile = el("div", { class: "zeile" }, [
+      el("label", { class: "feld" }, [el("span", { text: "Reisecode" }), codeFeld]),
+      el("label", { class: "feld" }, [el("span", { text: "überwachen bis" }), bisFeld]),
+      el("button", { class: "btn stark", text: "Reise suchen", onclick: suchen })
+    ]);
+    c.appendChild(zeile);
+    var ergebnis = el("div"); c.appendChild(ergebnis);
+    app.appendChild(c);
+
+    function suchen() {
+      var code = (codeFeld.value || "").trim().toUpperCase();
+      if (!code) { toast("Bitte einen Reisecode eintragen.", true); return; }
+      beschaeftigtSetzen(true);
+      ergebnis.innerHTML = "<p class='note'>Suche …</p>";
+      api("/api/reise/pruefen", { code: code }).then(function (j) {
+        beschaeftigtSetzen(false); auswahl(j.reise);
+      }).catch(function (e) {
+        beschaeftigtSetzen(false);
+        ergebnis.innerHTML = "";
+        toast(e.message, true);
+      });
+    }
+
+    function auswahl(info) {
+      ergebnis.innerHTML = "";
+      var k = info.kopf || {};
+      ergebnis.appendChild(el("p", { class: "note", style: "margin-top:14px", text:
+        "Gefunden: " + (k.schiff || "?") + " – " + (k.titel || "?") + ", " +
+        dtLang(k.von) + " bis " + dtLang(k.bis) + (k.naechte ? " (" + k.naechte + " Nächte)" : "") +
+        (info.bereits_angelegt ? " · Achtung: bereits angelegt, Anlegen überschreibt die Einstellungen." : "") }));
+      if (!info.kabinen_lesbar)
+        ergebnis.appendChild(el("p", { class: "note", text:
+          "Hinweis: die Kabinenliste war nicht abrufbar – Preise werden trotzdem erfasst." }));
+      if (!info.kategorien.length) {
+        ergebnis.appendChild(el("p", { class: "note", text: "Keine Kabinenkategorien erkannt." }));
+        return;
+      }
+      var liste = el("div", { class: "katliste" });
+      var boxen = [];
+      info.kategorien.forEach(function (kat, i) {
+        var cb = el("input", { type: "checkbox" });
+        cb.checked = i === 0;
+        boxen.push({ kat: kat, cb: cb });
+        var preisText = Object.keys(kat.preise).length
+          ? Object.keys(kat.preise).slice(0, 2).map(function (t) { return t + " " + eur(kat.preise[t]); }).join(" · ")
+          : "kein Preis";
+        liste.appendChild(el("label", {}, [cb, el("span", {}, [
+          el("b", { text: kat.name }),
+          el("div", { class: "rest", text: kat.codes.join(" / ") + " · " + kat.frei + " frei · " + preisText })
+        ])]));
+      });
+      ergebnis.appendChild(el("p", { class: "note", style: "margin-bottom:2px",
+        text: "Welche Kategorien sollen gezählt werden?" }));
+      ergebnis.appendChild(liste);
+
+      // Wunschkabine kann nur eine der angehakten Kategorien sein
+      var primaerWahl = el("select");
+      function primaerOptionen() {
+        var vorher = primaerWahl.value;
+        primaerWahl.innerHTML = "";
+        var gewaehlt = boxen.filter(function (b) { return b.cb.checked; });
+        gewaehlt.forEach(function (b) {
+          primaerWahl.appendChild(el("option", { value: b.kat.name, text: b.kat.name }));
+        });
+        var namen = gewaehlt.map(function (b) { return b.kat.name; });
+        primaerWahl.value = namen.indexOf(vorher) >= 0 ? vorher : (namen[0] || "");
+        primaerWahl.disabled = !gewaehlt.length;
+      }
+      boxen.forEach(function (b) { b.cb.onchange = primaerOptionen; });
+      primaerOptionen();
+      var tarifWahl = el("select");
+      (D.global.tarife || ["LIGHT"]).forEach(function (t) {
+        tarifWahl.appendChild(el("option", { value: t, text: t }));
+      });
+      tarifWahl.value = (D.global.standard || {}).tarif || "LIGHT";
+      var flugFeld = el("input", { type: "text", placeholder: "ERF=1000, MUC=800",
+        value: Object.keys(D.global.flug || {}).filter(function (x) { return x[0] !== "_"; })
+          .map(function (x) { return x + "=" + D.global.flug[x]; }).join(", ") });
+      ergebnis.appendChild(el("div", { class: "zeile" }, [
+        el("label", { class: "feld" }, [el("span", { text: "Wunschkabine (Alarme beziehen sich darauf)" }), primaerWahl]),
+        el("label", { class: "feld" }, [el("span", { text: "Tarif" }), tarifWahl]),
+        el("label", { class: "feld", style: "flex:1;min-width:220px" },
+          [el("span", { text: "Flugkosten je Flughafen, für alle Reisenden zusammen" }), flugFeld]),
+        el("button", { class: "btn stark", text: "Reise anlegen und einmal messen", onclick: anlegen })
+      ]));
+
+      function anlegen() {
+        var gruppen = boxen.filter(function (b) { return b.cb.checked; })
+          .map(function (b) { return { name: b.kat.name, codes: b.kat.codes,
+            primaer: b.kat.name === primaerWahl.value }; });
+        if (!gruppen.length) { toast("Mindestens eine Kategorie auswählen.", true); return; }
+        if (!gruppen.some(function (g) { return g.primaer; })) gruppen[0].primaer = true;
+        var flug = {};
+        (flugFeld.value || "").split(",").forEach(function (teil) {
+          var m = teil.trim().match(/^([A-Za-z]{3})\s*=\s*(\d+)$/);
+          if (m) flug[m[1].toUpperCase()] = +m[2];
+        });
+        beschaeftigtSetzen(true);
+        api("/api/reise/anlegen", { code: info.code, kopf: info.kopf, gruppen: gruppen,
+          tarif: tarifWahl.value, flug: flug, ueberwachen_bis: bisFeld.value || "" })
+          .then(function (j) {
+            beschaeftigtSetzen(false);
+            D = j.status; aktiverCode = j.code; zeichne();
+            toast(j.fehler && j.fehler.length ? ("Angelegt, aber: " + j.fehler[0])
+              : "Angelegt und einmal gemessen.", !!(j.fehler && j.fehler.length));
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          })
+          .catch(function (e) { beschaeftigtSetzen(false); toast(e.message, true); });
+      }
+    }
+  }
+
+  // ------------------------------------------------------------ Aktionen
+  function aktualisieren(code) {
+    beschaeftigtSetzen(true);
+    toast("Frage die Quellen ab …");
+    api("/api/aktualisieren", { code: code || "__alle" }).then(function (j) {
+      beschaeftigtSetzen(false);
+      D = j.status; zeichne();
+      var fehler = (j.ergebnisse || []).filter(function (e) { return e.fehler && e.fehler.length; });
+      var alarm = (j.ergebnisse || []).filter(function (e) { return e.alarm; });
+      if (fehler.length) toast(fehler[0].fehler[0], true);
+      else if (alarm.length) toast("ALARM: " + alarm[0].gruende.join("; "), true);
+      else toast("Aktualisiert." + (j.hinweis ? " " + j.hinweis : ""));
+    }).catch(function (e) { beschaeftigtSetzen(false); toast(e.message, true); });
+  }
+
+  function senden(pfad, koerper, erfolg) {
+    beschaeftigtSetzen(true);
+    api(pfad, koerper).then(function (j) {
+      beschaeftigtSetzen(false);
+      if (j.status) { D = j.status; zeichne(); }
+      toast(erfolg || "Gespeichert.");
+    }).catch(function (e) { beschaeftigtSetzen(false); toast(e.message, true); });
+  }
+
+  function fuss() {
+    app.appendChild(el("footer", { html:
+      "Das wichtigste Alarmsignal ist nicht die Kabinenzahl, sondern der <b>Wegfall des Tarifpreises</b> " +
+      "bei der Wunschkategorie – das Kontingent eines Tarifs ist viel kleiner als die Zahl der physisch " +
+      "freien Kabinen.<br>" +
+      "Preise von euresa-reisen.de (Kabinenpreis, ohne Flug), Kabinenzahlen aus der Kabinenwahl. " +
+      "Verbindlich ist immer aida.de. Die Werte „pro Person inkl. Flug\" enthalten <b>angenommene</b> " +
+      "Flugkosten – bewegt sich der echte Flugpreis, sieht diese Messreihe das nicht.<br>" +
+      "Bitte den Aktualisieren-Knopf nicht im Sekundentakt drücken – es ist eine fremde Buchungsstrecke. " +
+      "Der Server erzwingt ohnehin einen Mindestabstand." }));
+  }
+
+  // ------------------------------------------------------------ Start
+  if (LIVE) {
+    fetch("/api/status")
+      .then(function (r) { return r.json(); })
+      .catch(function (e) {
+        app.innerHTML = "<p>Der Server antwortet nicht oder liefert kein JSON. " +
+          "Läuft er? Protokoll ansehen.</p>";
+        throw e;
+      })
+      .then(function (j) {
+        // Zeichenfehler NICHT als "Server offline" ausgeben - das schickt bei der
+        // Fehlersuche in die komplett falsche Richtung.
+        try { D = j; zeichne(); }
+        catch (e) {
+          app.innerHTML = "<p>Die Ansicht konnte nicht aufgebaut werden:<br><code>" +
+            (e && e.message ? e.message : e) + "</code></p>";
+          throw e;
+        }
+      });
+  } else {
+    zeichne();
+  }
+})();
+</script>
+</body>
+</html>

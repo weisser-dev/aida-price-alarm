@@ -1,11 +1,14 @@
 .git
 .github
-node_modules
 data
+_alt
 *.log
 .env
 .env.local
 .dockerignore
-Dockerfile
 docker-compose.yml
+docker-compose.override.yml
 README.md
+__pycache__
+*.pyc
+.DS_Store

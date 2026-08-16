@@ -1,0 +1,73 @@
+{
+  "_hinweis": "Globale Einstellungen. Die einzelnen Reisen liegen als eigene Dateien unter reisen/.",
+
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8777,
+    "_hinweis": "Nur von diesem Mac erreichbar. 127.0.0.1 bitte nicht auf 0.0.0.0 aendern.",
+    "mindestabstand_sekunden": 60
+  },
+
+  "flug": {
+    "_hinweis": "Vorbelegung fuer neue Reisen: Kosten fuer 2 Personen, hin und zurueck. Je Reise in reisen/<code>.json ueberschreibbar.",
+    "ERF": 1000,
+    "MUC": 800
+  },
+
+  "schwellen": {
+    "preis_anstieg_prozent": 5.0,
+    "preis_aenderung_euro": 50,
+    "kabinen_kritisch": 50,
+    "kabinen_rueckgang": 25
+  },
+
+  "verhalten": {
+    "benachrichtigung": true,
+    "raw_aufbewahren_tage": 120
+  },
+
+  "standard": {
+    "tarif": "LIGHT",
+    "reisende": [2, 0, 0],
+    "preismodell": "IND"
+  },
+
+  "tarife": [
+    "LIGHT", "CLASSIC", "PREMIUM",
+    "CLASSIC ALL IN", "PREMIUM ALL IN", "COMFORT ALL IN",
+    "JUST AIDA", "VARIO"
+  ],
+
+  "kategorien": [
+    "Innenkabine",
+    "Meerblickkabine",
+    "Balkonkabine",
+    "Verandakabine",
+    "Verandakabine Komfort",
+    "Verandakabine Deluxe",
+    "Panoramakabine",
+    "Junior-Suite",
+    "Suite",
+    "Deluxe Suite",
+    "Premium Suite"
+  ],
+
+  "kategorie_prefixe": {
+    "_hinweis": "Erster Buchstabe der AIDA-Kabinencodes je Kategorie. Wird beim Anlegen einer neuen Reise benutzt, um die echten Codes zu finden.",
+    "Innenkabine": "I",
+    "Meerblickkabine": "M",
+    "Balkonkabine": "B",
+    "Verandakabine": "V",
+    "Verandakabine Komfort": "V",
+    "Verandakabine Deluxe": "D",
+    "Panoramakabine": "P",
+    "Junior-Suite": "J",
+    "Suite": "S",
+    "Deluxe Suite": "S",
+    "Premium Suite": "S"
+  },
+
+  "links": {
+    "beratung": "+49 381 20 27 07 22"
+  }
+}

@@ -13,25 +13,37 @@ services:
       - "${APP_PORT:-3000}"
     environment:
       PORT: ${APP_PORT:-3000}
+      HOST: 0.0.0.0
       APP_BASE_URL: ${APP_BASE_URL:-}
-      DATABASE_PATH: /app/data/aida.db
-      SCRAPE_CRON: ${SCRAPE_CRON:-15 6 * * *}
-      USE_MOCK: ${USE_MOCK:-true}
-      AIDA_API_URL: ${AIDA_API_URL:-}
-      AIDA_USER_AGENT: ${AIDA_USER_AGENT:-}
+      # Verändert sich nur über das Volume, nicht über den Deploy
+      AIDA_DATA_DIR: /app/data
+      TZ: ${TZ:-Europe/Berlin}
+
+      # Messtakt. 4 = alle vier Stunden zur Minute LAUF_OFFSET_MINUTEN.
+      # Leer lassen schaltet den Zeitplan ab (dann nur noch der Knopf).
+      LAUF_INTERVALL_STUNDEN: ${LAUF_INTERVALL_STUNDEN:-4}
+      LAUF_OFFSET_MINUTEN: ${LAUF_OFFSET_MINUTEN:-7}
+      # Mindestabstand zwischen zwei Abrufen derselben Reise, in Sekunden.
+      # Schützt die fremde Buchungsstrecke vor Klick-Gewittern.
+      MINDESTABSTAND_SEKUNDEN: ${MINDESTABSTAND_SEKUNDEN:-60}
+
+      # Meldewege. Alles leer = nur Protokoll und Oberfläche.
+      MAIL_AN: ${MAIL_AN:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_FROM: ${SMTP_FROM:-AIDA Preisalarm <noreply@example.com>}
+      SMTP_FROM: ${SMTP_FROM:-}
+      NTFY_URL: ${NTFY_URL:-}
+      NTFY_TOKEN: ${NTFY_TOKEN:-}
     volumes:
       - ./data:/app/data
     networks:
       - aida-net
       - caddy-net
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:${APP_PORT:-3000}/api/status"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:${APP_PORT:-3000}/api/gesundheit >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5
