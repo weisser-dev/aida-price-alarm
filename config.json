@@ -18,11 +18,14 @@
     "kabinen_rueckgang": 25
   },
   "verhalten": {
+    "_hinweis": "vergleich_alle_tage: 0 = Nachbartermine bei jedem Lauf mitpruefen (neun weitere Aufrufe einer normalen Website), n = hoechstens alle n Tage, -1 = gar nicht. archiv_konstellationen: wie viele Kombinationen aus Kategorie und Tarif je Lauf aus dem euresa-Preisaenderungsarchiv geholt werden.",
     "benachrichtigung": true,
     "raw_aufbewahren_tage": 120,
-    "vergleich_alle_tage": 3,
+    "vergleich_alle_tage": 0,
     "vergleich_wochen_vor": 4,
-    "vergleich_wochen_nach": 4
+    "vergleich_wochen_nach": 4,
+    "archiv_konstellationen": 14,
+    "aktion_pruefen_alle_tage": 7
   },
   "standard": {
     "tarif": "LIGHT",

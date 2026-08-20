@@ -1,100 +1,98 @@
 {
-  "stand": "2026-08-16",
+  "stand": "2026-08-20",
   "tarif": "LIGHT",
   "kategorie": "Verandakabine Komfort",
   "termine": [
     {
       "code": "CO07260905",
       "von": "2026-09-05",
-      "bis": "2026-09-12",
-      "schiff": "AIDAcosma",
-      "titel": "Mediterrane Schätze mit Korsika ab Mallorca",
       "erreichbar": true,
+      "titel": "Mediterrane Schätze mit Korsika ab Mallorca",
+      "schiff": "AIDAcosma",
+      "bis": "2026-09-12",
       "wunsch_tarif": null,
-      "wunsch_classic": 3458,
+      "wunsch_classic": 3558,
       "hat_tarif_irgendwo": [],
       "kategorien": 4
     },
     {
       "code": "CO07260912",
       "von": "2026-09-12",
-      "bis": "2026-09-19",
-      "schiff": "AIDAcosma",
-      "titel": "Mediterrane Schätze mit Gibraltar ab Mallorca",
       "erreichbar": false,
-      "fehler": "Auszug unvollständig – wird beim nächsten Lauf sauber geholt"
+      "fehler": "keine Preise ausgewiesen – ausgebucht oder kein Verkaufstermin",
+      "ohne_preise": true
     },
     {
       "code": "CO07260919",
       "von": "2026-09-19",
-      "bis": "2026-09-26",
-      "schiff": "AIDAcosma",
-      "titel": "Mediterrane Schätze mit Korsika ab Mallorca",
       "erreichbar": true,
+      "titel": "Mediterrane Schätze mit Korsika ab Mallorca",
+      "schiff": "AIDAcosma",
+      "bis": "2026-09-26",
       "wunsch_tarif": null,
-      "wunsch_classic": 2598,
+      "wunsch_classic": 3598,
       "hat_tarif_irgendwo": [],
-      "kategorien": 4
+      "kategorien": 2
     },
     {
       "code": "CO07260926",
       "von": "2026-09-26",
-      "bis": "2026-10-03",
-      "schiff": "AIDAcosma",
-      "titel": "Mediterrane Schätze mit Sardinien ab Mallorca",
       "erreichbar": true,
+      "titel": "Mediterrane Schätze mit Sardinien ab Mallorca",
+      "schiff": "AIDAcosma",
+      "bis": "2026-10-03",
       "wunsch_tarif": null,
-      "wunsch_classic": 2498,
+      "wunsch_classic": 2598,
       "hat_tarif_irgendwo": [],
-      "kategorien": 4
+      "kategorien": 5
     },
     {
       "code": "CO07261010",
       "von": "2026-10-10",
-      "bis": "2026-10-17",
-      "schiff": "AIDAcosma",
-      "titel": "Mediterrane Schätze mit Gibraltar ab Mallorca",
       "erreichbar": true,
+      "titel": "Mediterrane Schätze mit Gibraltar ab Mallorca",
+      "schiff": "AIDAcosma",
+      "bis": "2026-10-17",
       "wunsch_tarif": null,
-      "wunsch_classic": 4098,
+      "wunsch_classic": 4298,
       "hat_tarif_irgendwo": [],
       "kategorien": 4
     },
     {
       "code": "CO07261017",
       "von": "2026-10-17",
-      "bis": "2026-10-24",
-      "schiff": "AIDAcosma",
-      "titel": "Mediterrane Schätze mit Korsika ab Mallorca",
       "erreichbar": true,
+      "titel": "Mediterrane Schätze mit Korsika ab Mallorca",
+      "schiff": "AIDAcosma",
+      "bis": "2026-10-24",
       "wunsch_tarif": null,
       "wunsch_classic": 2758,
       "hat_tarif_irgendwo": [
         "Innenkabine"
       ],
-      "kategorien": 6
+      "kategorien": 5
     },
     {
       "code": "CO07261024",
       "von": "2026-10-24",
-      "bis": "2026-10-31",
-      "schiff": "AIDAcosma",
-      "titel": "Mediterrane Schätze mit Sardinien ab Mallorca",
       "erreichbar": true,
+      "titel": "Mediterrane Schätze mit Sardinien ab Mallorca",
+      "schiff": "AIDAcosma",
+      "bis": "2026-10-31",
       "wunsch_tarif": null,
       "wunsch_classic": 2498,
       "hat_tarif_irgendwo": [
         "Innenkabine"
       ],
-      "kategorien": 6
+      "kategorien": 4
     },
     {
       "code": "CO07261031",
       "von": "2026-10-31",
-      "bis": "2026-11-07",
-      "schiff": "AIDAcosma",
-      "titel": "Mediterrane Schätze mit Korsika ab Mallorca",
       "erreichbar": true,
+      "titel": "Mediterrane Schätze mit Korsika ab Mallorca",
+      "schiff": "AIDAcosma",
+      "bis": "2026-11-07",
       "wunsch_tarif": 1798,
       "wunsch_classic": 2038,
       "hat_tarif_irgendwo": [
@@ -105,6 +103,5 @@
       ],
       "kategorien": 6
     }
-  ],
-  "_hinweis": "Erstbestand vom 16.08.2026. Wird alle drei Tage automatisch erneuert."
+  ]
 }

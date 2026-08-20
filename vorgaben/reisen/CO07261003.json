@@ -49,6 +49,136 @@
     "name": "AIDA Herbst Deals",
     "von": "2026-08-13",
     "bis": "2026-09-07",
-    "nachlass_bis": 300
-  }
+    "quelle": "https://euresa-reisen.de/angebote/aktuelles/aida-herbst-deals-2026-kurzfristige-angebote-top-preise",
+    "geprueft": "2026-08-20",
+    "nachlass": null
+  },
+  "aktionen": {
+    "Innenkabine": {
+      "PREMIUM ALL IN": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -100
+      },
+      "PREMIUM": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -300
+      },
+      "CLASSIC ALL IN": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -100
+      },
+      "CLASSIC": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -100
+      },
+      "LIGHT": {
+        "aktion": "AIDA Herbst Deals"
+      }
+    },
+    "Meerblickkabine": {
+      "COMFORT ALL IN": {
+        "aktion": "AIDA Herbst Deals"
+      },
+      "PREMIUM ALL IN": {
+        "aktion": "AIDA Herbst Deals"
+      },
+      "PREMIUM": {
+        "aktion": "AIDA Herbst Deals"
+      },
+      "CLASSIC ALL IN": {
+        "aktion": "AIDA Herbst Deals"
+      },
+      "CLASSIC": {
+        "aktion": "AIDA Herbst Deals"
+      }
+    },
+    "Balkonkabine": {
+      "COMFORT ALL IN": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -100
+      },
+      "PREMIUM ALL IN": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -100
+      },
+      "PREMIUM": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -300
+      },
+      "CLASSIC ALL IN": {
+        "aktion": "AIDA Herbst Deals"
+      },
+      "CLASSIC": {
+        "aktion": "AIDA Herbst Deals"
+      },
+      "LIGHT": {
+        "aktion": "AIDA Herbst Deals"
+      }
+    },
+    "Verandakabine Komfort": {
+      "COMFORT ALL IN": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -100
+      },
+      "PREMIUM ALL IN": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -100
+      },
+      "PREMIUM": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -300
+      },
+      "CLASSIC ALL IN": {
+        "aktion": "AIDA Herbst Deals"
+      },
+      "CLASSIC": {
+        "aktion": "AIDA Herbst Deals"
+      },
+      "LIGHT": {
+        "aktion": "AIDA Herbst Deals"
+      }
+    },
+    "Verandakabine Deluxe": {
+      "COMFORT ALL IN": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -100
+      },
+      "PREMIUM ALL IN": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -100
+      },
+      "PREMIUM": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -300
+      },
+      "CLASSIC ALL IN": {
+        "aktion": "AIDA Herbst Deals"
+      },
+      "CLASSIC": {
+        "aktion": "AIDA Herbst Deals"
+      }
+    },
+    "Junior-Suite": {
+      "COMFORT ALL IN": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -100
+      },
+      "PREMIUM ALL IN": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -100
+      },
+      "PREMIUM": {
+        "aktion": "AIDA Herbst Deals",
+        "senkung": -300
+      },
+      "CLASSIC ALL IN": {
+        "aktion": "AIDA Herbst Deals"
+      },
+      "CLASSIC": {
+        "aktion": "AIDA Herbst Deals"
+      }
+    }
+  },
+  "zuletzt_geprueft": "2026-08-20 14:31",
+  "letzter_fehler": ""
 }

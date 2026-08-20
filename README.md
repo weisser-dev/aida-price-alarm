@@ -15,11 +15,33 @@ Live: <https://aida.weisser.dev>
 **Kabinen** — über dieselbe Abfrage, die die Kabinenwahl der Buchungsstrecke benutzt.
 Gezählt wird, was dort tatsächlich wählbar ist, aufgeschlüsselt nach Unterkategorie und Deck.
 
-**Preise** — die komplette Tabelle Kategorie × Tarif von euresa-reisen.de.
+**Preise** — die komplette Tabelle Kategorie × Tarif von euresa-reisen.de. Ein Seitenaufruf
+liefert alle Zeilen auf einmal, deshalb wird die ganze Tafel mitgeschrieben, nicht nur die
+Wunschzeile.
+
+**Aktionen** — Name und Nachlass stehen an jeder Preiskachel („AIDA Herbst Deals",
+„Preissenkung: −100 €"), der Gültigkeitszeitraum im Text der verlinkten Aktionsseite. Beides
+wird gelesen, statt es von Hand in die Reisedatei zu tippen.
+
+**Preisänderungs-Archiv** — euresa führt selbst Buch über jede Preisänderung (bei dieser
+Reise über 2.500 seit dem 01.06.2025) und zeigt je Konstellation aus Kategorie, Tarif und
+An-/Abreise die letzten zehn mit Datum, Betrag **und** Prozentwert. Das Programm holt sie
+über die Livewire-Komponente der Reiseseite ab und führt sie in `aenderungen.csv` zusammen —
+wer bei jedem Lauf abholt, sammelt mit der Zeit mehr als die zehn, die dort stehen.
+
+**Vergleichstermine** — die Preistabellen der Nachbartermine derselben Reihe, vier Wochen
+davor und danach.
 
 Das Ergebnis landet als eine Zeile je Tag in `data/daten/<Reisecode>/`. Ein zweiter Lauf am
 selben Tag **ersetzt** die Tageszeile, statt eine zweite anzuhängen — der Knopf verwässert
 die Messreihe also nicht.
+
+| Datei | Inhalt |
+|---|---|
+| `preise.csv` | eine Zeile je Tag, alle Kategorien × Tarife |
+| `kabinen.csv` | freie Kabinen je Gruppe, nach Unterkategorie und Deck |
+| `aenderungen.csv` | Preisänderungs-Archiv von euresa, je Konstellation und Datum |
+| `vergleich.csv` | ein Datenpunkt je Lauf: wie viele Nachbartermine den Tarif noch haben |
 
 ### Das wichtigste Signal ist nicht die Kabinenzahl
 
@@ -28,6 +50,15 @@ LIGHT-Preis mehr — dort ist das Light-Kontingent aufgebraucht, obwohl die Kabi
 frei sind. Das Kontingent eines Tarifs ist viel kleiner als die Zahl der freien Kabinen.
 Verschwindet der Tarifpreis der Wunschkategorie, ist die Konstellation weg — lange bevor
 das Schiff voll ist. Genau darauf zielt der Hauptalarm.
+
+### Das Kontingent selbst ist nicht sichtbar
+
+Es gibt **keine Zahl** dazu. Weder AIDA noch euresa weisen aus, wie viele Plätze ein Tarif
+noch hat; die Kabinenabfrage liefert je Kabine nur Nummer, Kategoriecode, Deck und ob sie
+wählbar ist — kein Tarif. Beobachtbar ist ausschließlich der Wegfall: wann eine Kategorie
+ihren Tarifpreis verliert, und wie viele Nachbartermine ihn noch haben. Beides wird deshalb
+als Zeitreihe geführt und in der Karte „Wie sich der Tarif zurückzieht" gezeigt. Alles
+andere wäre geraten.
 
 ---
 
@@ -38,18 +69,52 @@ einzelne Signal mit seiner tatsächlichen Zahl. Bewertet werden:
 
 | Signal | Wirkung |
 |---|---|
-| Preistrend (Ausgleichsgerade über die Messreihe) | steigend → buchen, fallend → warten |
+| Preistrend (Ausgleichsgerade über die Messreihe), in € und % | steigend → buchen, fallend → warten |
+| Richtung der Änderungen im euresa-Archiv | überwiegend nach oben → buchen, nach unten → warten |
 | Kabinenabfluss pro Tag, hochgerechnet auf den Bestand | schneller Abfluss → buchen |
 | Anzahl Kategorien, die den Tarif schon verloren haben | ≥ 3 → Kontingent zieht sich zurück |
+| Kategorien, die den Tarif **während** der Beobachtung verloren haben | jede → buchen |
+| Nachbartermine, die den Tarif seit Beobachtungsbeginn verloren haben | jeder → buchen |
 | Tage bis Aktionsende | ≤ 7 → deutlich, ≤ 14 → leicht |
 | Tage bis Abreise | < 60 → leicht |
 | Preis auf dem bisherigen Tief | leicht (nur wenn der Preis sich überhaupt bewegt hat) |
 
+Dazu zwei Zahlen, die das Warten beziffern statt es zu bewerten:
+
+* **Rückfallrisiko** — fällt der Tarif weg, kostet dieselbe Kabine den nächstgünstigsten
+  noch gelisteten Tarif. Der Unterschied wird in Euro und Prozent ausgewiesen. Das ist der
+  Betrag, um den es beim Warten tatsächlich geht, und er ist oft kleiner als die Aufregung.
+* **Drift** — was der Preis im Tempo der letzten Monate in 30 Tagen machen würde. Reine
+  Fortschreibung des Archivs.
+
 **Das ist ausdrücklich keine Vorhersage.** Die Regeln kennen weder AIDAs Kontingentplanung
-noch die Nachfrage — sie fassen nur zusammen, was in der eigenen Messreihe steht. Deshalb
-weist die Karte immer aus, wie viele Messungen über wie viele Tage dahinterstehen, und
-warnt selbst, wenn die Datenlage dünn ist. Die Logik steckt in `einschaetzung()` in
-`aida_watch.py` und ist in `selbsttest.py` mit Beispielreihen abgesichert.
+noch die Nachfrage — sie fassen zusammen, was in der eigenen Messreihe und im euresa-Archiv
+steht. Deshalb weist die Karte immer aus, wie viele Messungen über wie viele Tage
+dahinterstehen, und warnt selbst, wenn die Datenlage dünn ist. Die Logik steckt in
+`einschaetzung()` in `aida_watch.py` und ist in `selbsttest.py` mit Beispielreihen
+abgesichert.
+
+---
+
+## Wie viele Abrufe ein Lauf kostet
+
+| Aufruf | Anzahl | Ziel |
+|---|---|---|
+| Kabinenwahl | 1 | `cabins.php` (Buchungsstrecke) |
+| Reiseseite | 1 | Preistafel, Aktionen, Livewire-Bausteine |
+| Preisänderungs-Archiv | bis 14 | Livewire-Endpunkt derselben Seite |
+| Vergleichstermine | 8 | Reiseseiten der Nachbartermine |
+| Aktionsseite | höchstens alle 7 Tage 1 | Gültigkeitszeitraum |
+
+Die Buchungsstrecke wird weiterhin **einmal** je Lauf angefasst. Alles andere sind Aufrufe
+einer ganz normalen Website. Stellschrauben in `config.json` unter `verhalten`:
+
+* `vergleich_alle_tage` — `0` = bei jedem Lauf (Voreinstellung), `n` = höchstens alle n Tage,
+  `-1` = aus. Nachbartermine, die beim letzten Mal nicht gelesen werden konnten, erzwingen
+  ohnehin einen neuen Versuch — sonst fehlen sie stillschweigend in jeder „X von Y"-Aussage.
+* `archiv_konstellationen` — wie viele Kombinationen aus Kategorie und Tarif je Lauf aus dem
+  Archiv geholt werden. `0` schaltet es ab.
+* `aktion_pruefen_alle_tage` — wie oft der Gültigkeitszeitraum der Aktion nachgeschlagen wird.
 
 ---
 

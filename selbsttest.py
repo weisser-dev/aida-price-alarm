@@ -226,6 +226,138 @@ pruefe(mit_v["kennzahlen"]["punkte"] > ohne_v["kennzahlen"]["punkte"],
 pruefe(mit_v["vertrauen"] != "niedrig" or a["geprueft"] < 6,
        "breiter Vergleich hebt das Vertrauen")
 
+
+# --------------------------------------------------------------------------
+# Aktionen an den Preiskacheln
+# --------------------------------------------------------------------------
+print("Aktionen lesen")
+AKT_SEITE = SEITE.replace(
+    "<div>AIDA PREMIUM ALL IN </div>",
+    "<div>AIDA PREMIUM ALL IN </div><div>AIDA Herbst Deals</div>").replace(
+    "<div>Verandakabine Komfort</div>\n  <div>AIDA LIGHT </div>",
+    "<div>Verandakabine Komfort</div>\n  <div>AIDA LIGHT </div><div>AIDA Herbst Deals</div>")
+_, akt_zeilen = A.parse_preise(AKT_SEITE, glob["kategorien"], glob["tarife"])
+akt = A.parse_aktionen(akt_zeilen, glob["kategorien"], glob["tarife"])
+pruefe(akt.get("Innenkabine", {}).get("PREMIUM ALL IN", {}).get("aktion") == "AIDA Herbst Deals",
+       "Aktionsname haengt an der Preiskachel")
+pruefe(akt.get("Innenkabine", {}).get("PREMIUM ALL IN", {}).get("senkung") == -100,
+       "Preissenkung wird als Betrag gelesen")
+pruefe("aktion" not in akt.get("Innenkabine", {}).get("LIGHT", {}),
+       "Kachel ohne Aktion bekommt keinen Namen angedichtet")
+pruefe(akt.get("Verandakabine Komfort", {}).get("LIGHT", {}).get("aktion") == "AIDA Herbst Deals",
+       "Aktion der Wunschkonstellation wird erkannt")
+pruefe("Getränkepaket AIDA Comfort Deluxe"
+       not in [w.get("aktion") for k in akt.values() for w in k.values()],
+       "Ausstattungszeilen sind keine Aktionen")
+
+print("Aktionszeitraum lesen")
+pruefe(A._datum_lang("07", "September", "2026") == "2026-09-07", "Datum in Worten wird umgesetzt")
+pruefe(A._datum_lang("07", "Nonember", "2026") is None, "unbekannter Monat gibt None")
+pruefe(A._slug("AIDA Herbst Deals") == "aida-herbst-deals", "Aktionsname wird zum Suchbegriff")
+
+# --------------------------------------------------------------------------
+# Preisaenderungs-Archiv
+# --------------------------------------------------------------------------
+print("Preisaenderungen lesen")
+AEN_HTML = """
+<table><thead><tr><th>Zeitpunkt</th><th>&Auml;nderung [&euro;]</th><th>&Auml;nderung [%]</th></tr></thead>
+<tbody>
+<tr><td><div>17.08.2026</div></td><td><span>+80 &euro;</span></td><td><span>5,64 %</span></td></tr>
+<tr><td><div>08.07.2026</div></td><td><span>-100 &euro;</span></td><td><span>-3,76 %</span></td></tr>
+<tr><td><div>12.05.2026</div></td><td><span>+300 &euro;</span></td><td><span>9,01 %</span></td></tr>
+</tbody></table>
+"""
+saetze = A.parse_aenderungen(AEN_HTML)
+pruefe(len(saetze) == 3, "drei Aenderungen gelesen")
+pruefe(saetze[0] == {"datum": "2026-08-17", "eur": 80, "prozent": 5.64},
+       "Datum, Betrag und Prozent stimmen")
+pruefe(saetze[1]["eur"] == -100 and saetze[1]["prozent"] == -3.76, "Minus bleibt Minus")
+pruefe(saetze[2]["prozent"] == 9.01, "euresa schreibt Zuwaechse ohne Vorzeichen")
+pruefe(A.parse_aenderungen("<div>nichts</div>") == [], "ohne Tabelle keine Aenderungen")
+
+print("Preisaenderungen auswerten")
+roh_aen = [{"kategorie": "Verandakabine Komfort", "tarif": "LIGHT", "flug": "0",
+            "datum": d, "eur": e, "prozent": p}
+           for d, e, p in [("2026-06-01", 100, 4.5), ("2026-07-01", -50, -2.1),
+                           ("2026-08-01", 100, 4.4)]]
+gewaehlt = A.waehle_aenderungen(roh_aen, "Verandakabine Komfort", "LIGHT")
+pruefe(len(gewaehlt) == 3, "die eigene Konstellation wird herausgefiltert")
+pruefe(A.waehle_aenderungen(roh_aen, "Balkonkabine", "LIGHT") == [],
+       "fremde Kategorie liefert nichts")
+pruefe(A.waehle_aenderungen(roh_aen, "Verandakabine Komfort", "LIGHT", mit_flug=True) == [],
+       "Flugpreise sind eine eigene Reihe")
+
+aus = A.werte_aenderungen_aus(gewaehlt, stichtag="2026-08-20")
+pruefe(aus["anzahl"] == 3 and aus["hoch"] == 2 and aus["runter"] == 1, "Richtungen gezaehlt")
+pruefe(aus["netto_eur"] == 150, "Nettoveraenderung summiert")
+pruefe(aus["beobachtet_tage"] == 61, "Beobachtungsfenster stimmt")
+pruefe(aus["abstand_tage"] == 30.5, "mittlerer Abstand zwischen Aenderungen")
+pruefe(aus["tage_seit_letzter"] == 19, "Alter der letzten Aenderung")
+pruefe(A.werte_aenderungen_aus(gewaehlt, fenster_tage=5, stichtag="2026-08-20") is None,
+       "ausserhalb des Fensters bleibt nichts uebrig")
+pruefe(A.werte_aenderungen_aus([]) is None, "ohne Archiv keine Auswertung")
+
+print("Prozentrechnung")
+pruefe(A.prozent(1498, 1418) == 5.6, "80 Euro auf 1418 sind 5,6 Prozent")
+pruefe(A.prozent(1418, 1498) == -5.3, "Rueckgang wird negativ")
+pruefe(A.prozent(100, 0) is None and A.prozent(None, 100) is None, "keine Division durch nichts")
+pruefe(A.proz_text(5.64, 2) == "+5.64 %" and A.proz_text(None) == "-", "Prozenttext mit Vorzeichen")
+
+# --------------------------------------------------------------------------
+# Tarif-Erosion
+# --------------------------------------------------------------------------
+print("Tarif-Erosion")
+kats = ["Innenkabine", "Balkonkabine", "Verandakabine Komfort"]
+reihe_p = [
+    {"datum": "2026-08-14", "Innenkabine|LIGHT": "1418", "Balkonkabine|LIGHT": "2258",
+     "Verandakabine Komfort|LIGHT": "2258"},
+    {"datum": "2026-08-17", "Innenkabine|LIGHT": "1498", "Balkonkabine|LIGHT": "",
+     "Verandakabine Komfort|LIGHT": "2258"},
+    {"datum": "2026-08-20", "Innenkabine|LIGHT": "1498", "Balkonkabine|LIGHT": "",
+     "Verandakabine Komfort|LIGHT": "2258"},
+]
+verl = A.tarif_verlauf(reihe_p, kats, "LIGHT")
+pruefe([v["anzahl"] for v in verl] == [3, 2, 2], "Zahl der Kategorien mit Tarif je Tag")
+pruefe(verl[1]["verloren"] == ["Balkonkabine"], "der Tag des Wegfalls wird benannt")
+pruefe(verl[2]["verloren"] == [], "ein Wegfall wird nicht jeden Tag neu gemeldet")
+pruefe(A.tarif_verlauf([], kats, "LIGHT") == [], "ohne Messreihe kein Verlauf")
+
+ero = A.erosion_aus_vergleich([
+    {"datum": "2026-08-14", "geprueft": "8", "mit_tarif": "3"},
+    {"datum": "2026-08-20", "geprueft": "7", "mit_tarif": "1"},
+])
+pruefe(ero["tage"] == 6 and ero["von_mit_tarif"] == 3 and ero["auf_mit_tarif"] == 1,
+       "Erosion ueber die Nachbartermine")
+pruefe(A.erosion_aus_vergleich([{"datum": "2026-08-20", "geprueft": "7", "mit_tarif": "1"}]) is None,
+       "ein einzelner Tag ist noch keine Kurve")
+
+print("Vergleich faellig")
+pruefe(A.vergleich_faellig({"code": "X"}, {"verhalten": {"vergleich_alle_tage": 0}}, tmp) is True,
+       "0 heisst: bei jedem Lauf")
+pruefe(A.vergleich_faellig({"code": "X"}, {"verhalten": {"vergleich_alle_tage": -1}}, tmp) is False,
+       "-1 schaltet den Vergleich ab")
+
+print("Einschaetzung mit Archiv")
+lage6 = A.bewerte(reise, glob, ruhig_p, ruhig_k)
+steigend = [{"kategorie": "Verandakabine Komfort", "tarif": "LIGHT", "flug": "0", "datum": d,
+             "eur": e, "prozent": p}
+            for d, e, p in [("2026-08-01", 100, 4.4), ("2026-08-05", 100, 4.3),
+                            ("2026-08-10", 100, 4.2)]]
+fallend = [{"kategorie": "Verandakabine Komfort", "tarif": "LIGHT", "flug": "0", "datum": d,
+            "eur": e, "prozent": p}
+           for d, e, p in [("2026-08-01", -100, -4.4), ("2026-08-05", -100, -4.3),
+                           ("2026-08-10", -100, -4.2)]]
+ohne_a = A.einschaetzung(reise, glob, ruhig_p, ruhig_k, lage6)
+mit_hoch = A.einschaetzung(reise, glob, ruhig_p, ruhig_k, lage6, None, steigend)
+mit_runter = A.einschaetzung(reise, glob, ruhig_p, ruhig_k, lage6, None, fallend)
+pruefe(mit_hoch["kennzahlen"]["punkte"] > ohne_a["kennzahlen"]["punkte"],
+       "lauter Preiserhoehungen im Archiv erhoehen die Dringlichkeit")
+pruefe(mit_runter["kennzahlen"]["punkte"] < ohne_a["kennzahlen"]["punkte"],
+       "lauter Preissenkungen im Archiv senken sie")
+pruefe(mit_hoch["archiv"]["anzahl"] == 3, "das Archiv haengt an der Einschaetzung")
+pruefe(any("Prozent" in z or "%" in z for z in mit_hoch["signale"]),
+       "die Begruendung nennt Prozentwerte")
+
 print()
 if fehler:
     print("%d Pruefung(en) fehlgeschlagen:" % len(fehler))

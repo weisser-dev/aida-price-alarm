@@ -20,9 +20,20 @@ Aufrufe
 
 Braucht nur die Python-Standardbibliothek - laeuft mit dem /usr/bin/python3 von macOS.
 
-Bitte hoechstens ein paar Mal am Tag laufen lassen. Das ist eine fremde
-Buchungsstrecke, kein oeffentliches API. Ein Abruf pro Lauf ist unauffaellig,
-eine Schleife nicht. Der Mindestabstand aus config.json wird erzwungen.
+Bitte hoechstens ein paar Mal am Tag laufen lassen. Der Mindestabstand aus
+config.json wird erzwungen.
+
+Ein Lauf besteht aus:
+
+    1 x cabins.php          fremde Buchungsstrecke, kein oeffentliches API -
+                            genau ein Aufruf je Lauf, das bleibt so
+    1 x Reiseseite          Preistafel, Aktionshinweise, Livewire-Bausteine
+  <=14 x Livewire-Endpunkt  Preisaenderungs-Archiv derselben Seite
+    8 x Reiseseite          Vergleichstermine der Nachbarwochen
+    1 x Aktionsseite        nur, wenn der Gueltigkeitszeitraum fehlt oder alt ist
+
+Alles ausser dem ersten Punkt sind Aufrufe einer ganz normalen Website. Wem das
+zu viel ist, drosselt es in config.json unter "verhalten".
 """
 
 import argparse
@@ -30,6 +41,7 @@ import csv
 import errno
 import fcntl
 import html as html_mod
+import http.cookiejar
 import json
 import os
 import re
@@ -259,12 +271,19 @@ def buchungslinks(reise, glob):
 # HTTP
 # --------------------------------------------------------------------------
 
+# Die Preisentwicklung von euresa haengt an einer Livewire-Komponente: der
+# CSRF-Wert aus dem Seitenquelltext gilt nur zusammen mit dem Sitzungskeks aus
+# demselben Abruf. Deshalb teilen sich GET und POST ein Keksglas.
+_KEKSE = http.cookiejar.CookieJar()
+_OEFFNER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_KEKSE))
+
+
 def http_get(url, timeout=40):
     req = urllib.request.Request(url, method="GET")
     req.add_header("user-agent", UA)
     req.add_header("accept", "text/html,application/xhtml+xml")
     req.add_header("accept-language", "de-DE,de;q=0.9")
-    with urllib.request.urlopen(req, timeout=timeout) as antwort:
+    with _OEFFNER.open(req, timeout=timeout) as antwort:
         roh = antwort.read()
     for kodierung in ("utf-8", "latin-1"):
         try:
@@ -272,6 +291,21 @@ def http_get(url, timeout=40):
         except UnicodeDecodeError:
             continue
     return roh.decode("utf-8", "replace")
+
+
+def http_post_json(url, nutzlast, referer, csrf, timeout=40):
+    daten = json.dumps(nutzlast).encode("utf-8")
+    req = urllib.request.Request(url, data=daten, method="POST")
+    req.add_header("content-type", "application/json")
+    req.add_header("accept", "application/json")
+    req.add_header("x-livewire", "true")
+    req.add_header("x-csrf-token", csrf)
+    req.add_header("referer", referer)
+    req.add_header("origin", "https://euresa-reisen.de")
+    req.add_header("accept-language", "de-DE,de;q=0.9")
+    req.add_header("user-agent", UA)
+    with _OEFFNER.open(req, timeout=timeout) as antwort:
+        return json.loads(antwort.read().decode("utf-8"))
 
 
 def hole_kabinen(code, kategorien, reisende, preismodell, timeout=40):
@@ -426,6 +460,338 @@ def parse_preise(roh, kategorien, tarife):
     if not ergebnis:
         raise Fehler("Preisabschnitt gefunden, aber keine Preise gelesen.")
     return ergebnis, zeilen
+
+
+# --------------------------------------------------------------------------
+# Aktionen und Preisaenderungs-Historie von euresa
+# --------------------------------------------------------------------------
+#
+# euresa schreibt beides selbst auf der Reiseseite mit und verschenkt es:
+#
+#   * an jeder Preiskachel steht der Name der laufenden Aktion und die
+#     ausgewiesene Preissenkung ("AIDA Herbst Deals", "Preissenkung: -100 €"),
+#   * der Abschnitt "Preisentwicklung" fuehrt seit dem 01.06.2025 Buch ueber
+#     jede Preisaenderung - mit Datum, Betrag UND Prozentwert.
+#
+# Der zweite Teil ist der Grund, warum dieses Programm ueberhaupt etwas ueber
+# das Verhalten von Preisen sagen kann: die eigene Messreihe ist ein paar Tage
+# lang, das euresa-Archiv reicht Monate zurueck.
+
+MONATE = {"januar": 1, "februar": 2, "maerz": 3, "märz": 3, "april": 4, "mai": 5,
+          "juni": 6, "juli": 7, "august": 8, "september": 9, "oktober": 10,
+          "november": 11, "dezember": 12}
+
+AKTION_SEITE = re.compile(r'href="(https://euresa-reisen\.de/angebote/aktuelles/[^"]+)"')
+
+
+def _slug(text):
+    tausch = {"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"}
+    klein = "".join(tausch.get(z, z) for z in (text or "").lower())
+    return re.sub(r"[^a-z0-9]+", "-", klein).strip("-")
+
+
+def _datum_lang(tag, monat, jahr):
+    nr = MONATE.get((monat or "").lower())
+    if not nr or not jahr:
+        return None
+    try:
+        return "%04d-%02d-%02d" % (int(jahr), nr, int(tag))
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_aktionen(zeilen, kategorien, tarife):
+    """
+    Je Kategorie/Tarif: laufende Aktion und ausgewiesene Preissenkung.
+
+    Der Seitenaufbau an einer Preiskachel ist:
+
+        AIDA LIGHT
+        AIDA Herbst Deals          <- Aktionsname, direkt hinter dem Tarif
+        ab
+        1.498 €
+        pro Kabine
+        Preissenkung:
+        -100 €
+    """
+    start = None
+    for i, z in enumerate(zeilen):
+        if "Gesamtpreis" in z and "je Kabine" in z:
+            start = i
+            break
+    if start is None:
+        return OrderedDict()
+
+    aus = OrderedDict()
+    kategorie = tarif = None
+    erwarte_namen = False
+
+    for i in range(start + 1, len(zeilen)):
+        zeile = zeilen[i]
+
+        if zeile in kategorien:
+            kategorie, tarif, erwarte_namen = zeile, None, False
+            continue
+
+        if re.match(r"^(Reiseverlauf|Preisentwicklung|EURESA Vorteile|"
+                    r"H(ae|ä)ufige Fragen)$", zeile):
+            if len(aus) >= 3:
+                break
+            continue
+
+        treffer = re.match(r"^AIDA ([A-Z][A-Z ]*[A-Z])\s*$", zeile)
+        if treffer:
+            kandidat = re.sub(r"\s+", " ", treffer.group(1)).strip()
+            tarif = kandidat if kandidat in tarife else None
+            erwarte_namen = tarif is not None
+            continue
+
+        if not (kategorie and tarif):
+            continue
+        feld = aus.setdefault(kategorie, OrderedDict()).setdefault(tarif, {})
+
+        if erwarte_namen:
+            erwarte_namen = False
+            # "ab" / ein Preis / "Loading..." heisst: diese Kachel hat keine Aktion
+            if not re.match(r"^(ab|pro Kabine|Loading\.\.\.|[\d.]+\s*€)$", zeile):
+                feld["aktion"] = zeile
+                continue
+
+        if zeile.startswith("Preissenkung"):
+            # mal "Preissenkung: -100 €" in einer Zeile, mal auf zwei verteilt
+            rest = zeile.split(":", 1)[1] if ":" in zeile else ""
+            if not rest.strip() and i + 1 < len(zeilen):
+                rest = zeilen[i + 1]
+            betrag = re.match(r"^\s*([+-]?[\d.]+)\s*€\s*$", rest)
+            if betrag:
+                feld["senkung"] = int(betrag.group(1).replace(".", ""))
+
+    # leere Kacheln wieder herauswerfen, damit die Datei nicht mit {} zuwaechst
+    sauber = OrderedDict()
+    for kat, tarife_ in aus.items():
+        innen = OrderedDict((t, w) for t, w in tarife_.items() if w)
+        if innen:
+            sauber[kat] = innen
+    return sauber
+
+
+def aktion_aus_seite(roh, name, timeout=30):
+    """
+    Holt den Gueltigkeitszeitraum der Aktion von der verlinkten Aktionsseite.
+    Auf der Reiseseite steht nur der Name; das Fenster steht im Fliesstext der
+    Aktionsseite ("Die Aktion beginnt am Donnerstag, 13. August und laeuft bis
+    Montag, 07. September 2026.").
+
+    Gibt {"name", "von", "bis", "quelle", "geprueft"} zurueck oder None.
+    """
+    if not name:
+        return None
+    kandidaten = AKTION_SEITE.findall(roh)
+    if not kandidaten:
+        return None
+    marke = _slug(name).replace("aida-", "")
+    treffer = [u for u in kandidaten if marke and marke in u] or kandidaten
+    text = " ".join(html_zu_zeilen(http_get(treffer[0], timeout=timeout)))
+
+    von = bis = None
+    spanne = re.search(
+        r"beginnt\s+am\s+[A-Za-zäöüÄÖÜ]+,?\s*(\d{1,2})\.\s*([A-Za-zäöüÄÖÜ]+)\s*(\d{4})?"
+        r"[^.]{0,60}?bis\s+[A-Za-zäöüÄÖÜ]+,?\s*(\d{1,2})\.\s*([A-Za-zäöüÄÖÜ]+)\s*(\d{4})",
+        text)
+    if spanne:
+        jahr = spanne.group(6)
+        von = _datum_lang(spanne.group(1), spanne.group(2), spanne.group(3) or jahr)
+        bis = _datum_lang(spanne.group(4), spanne.group(5), jahr)
+    else:
+        ende = re.search(r"(?:l(?:ae|äu)uft\s+bis|g(?:ue|ü)ltig\s+bis|buchbar\s+bis)"
+                         r"\s+(?:[A-Za-zäöüÄÖÜ]+,?\s*)?(\d{1,2})\.\s*([A-Za-zäöüÄÖÜ]+)"
+                         r"\s*(\d{4})", text)
+        if ende:
+            bis = _datum_lang(ende.group(1), ende.group(2), ende.group(3))
+    if not bis:
+        return None
+    return {"name": name, "von": von, "bis": bis, "quelle": treffer[0],
+            "geprueft": heute()}
+
+
+# ---- Preisaenderungs-Archiv (Livewire-Komponente der Reiseseite) ----------
+
+def _select_optionen(roh, feld_id):
+    block = re.search(r'<select[^>]*id="%s"[^>]*>([\s\S]*?)</select>' % re.escape(feld_id), roh)
+    if not block:
+        return {}
+    aus = {}
+    for treffer in re.finditer(r'<option value="([^"]*)"[^>]*>([^<]*)</option>', block.group(1)):
+        wert = treffer.group(1).strip()
+        text = html_mod.unescape(treffer.group(2)).strip()
+        if wert and text and text != "---":
+            aus[re.sub(r"^AIDA\s+", "", text)] = wert
+    return aus
+
+
+def livewire_teile(roh):
+    """Die Bausteine, die ein Livewire-Aufruf der Preisentwicklung braucht."""
+    csrf = re.search(r'data-csrf="([^"]*)"', roh)
+    uri = re.search(r'data-update-uri="([^"]*)"', roh)
+    schnappschuss = None
+    for treffer in re.finditer(r'wire:snapshot="([^"]*)"', roh):
+        s = html_mod.unescape(treffer.group(1))
+        if "filterPriceChanges" in s:
+            schnappschuss = s
+            break
+    if not (csrf and uri and schnappschuss):
+        return None
+    return {"csrf": csrf.group(1), "uri": uri.group(1), "snapshot": schnappschuss,
+            "tarife": _select_optionen(roh, "price_model_id"),
+            "kategorien": _select_optionen(roh, "organizer_cabin_category_id")}
+
+
+def parse_aenderungen(htm):
+    """Die Tabelle 'Zeitpunkt | Aenderung [€] | Aenderung [%]' auslesen."""
+    koerper = re.search(r"<tbody[^>]*>([\s\S]*?)</tbody>", htm)
+    if not koerper:
+        return []
+    aus = []
+    for roh_zeile in re.split(r"<tr\b", koerper.group(1))[1:]:
+        text = " ".join(html_zu_zeilen(roh_zeile))
+        tag = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", text)
+        betrag = re.search(r"([+-]\s?[\d.]+)\s*€", text)
+        if not (tag and betrag):
+            continue
+        eur = int(re.sub(r"[^\d-]", "", betrag.group(1).replace(" ", "")))
+        proz = re.search(r"([+-]?\d+(?:\.\d{3})*,\d+)\s*%", text)
+        wert = None
+        if proz:
+            wert = abs(float(proz.group(1).replace(".", "").replace(",", ".")))
+            # euresa schreibt Zuwaechse ohne Vorzeichen - der Betrag verraet die Richtung
+            wert = -wert if eur < 0 else wert
+        aus.append({"datum": "%s-%s-%s" % (tag.group(3), tag.group(2), tag.group(1)),
+                    "eur": eur, "prozent": wert})
+    return aus
+
+
+def hole_preisaenderungen(teile, kategorie, tarif, mit_flug, referer, timeout=30):
+    """Die letzten Preisaenderungen einer Konstellation. None = nicht abfragbar."""
+    kat_id = teile["kategorien"].get(kategorie)
+    tar_id = teile["tarife"].get(tarif)
+    if not (kat_id and tar_id):
+        return None
+    nutzlast = {"_token": teile["csrf"], "components": [{
+        "snapshot": teile["snapshot"],
+        "updates": {
+            "filterPriceChanges.price_model_id": tar_id,
+            "filterPriceChanges.organizer_cabin_category_id": kat_id,
+            "filterPriceChanges.flight": "1" if mit_flug else "0",
+        },
+        "calls": [],
+    }]}
+    antwort = http_post_json(teile["uri"], nutzlast, referer, teile["csrf"], timeout)
+    teilstuecke = antwort.get("components") or []
+    if not teilstuecke:
+        return []
+    return parse_aenderungen((teilstuecke[0].get("effects") or {}).get("html", ""))
+
+
+def merke_aktion(reise, aktionen, roh_html, glob, timeout=30):
+    """
+    Haelt fest, welche Aktion an der Wunschkonstellation haengt und bis wann
+    sie laeuft. Der Name steht an der Preiskachel, das Enddatum nur im Text der
+    verlinkten Aktionsseite - die wird deshalb nur geholt, wenn sich der Name
+    geaendert hat oder das gespeicherte Fenster alt ist.
+    """
+    reise = dict(reise)
+    reise["aktionen"] = aktionen or {}
+
+    tarif = reise.get("tarif", "LIGHT")
+    wunsch = gruppen_aus(reise)[0]["name"] if gruppen_aus(reise) else ""
+    eigen = (aktionen or {}).get(wunsch, {}).get(tarif, {})
+    name = eigen.get("aktion")
+    if not name:
+        # Der Nachlass haengt an der einzelnen Kachel, der Aktionsname gilt fuer
+        # die ganze Reise - also die haeufigste Nennung nehmen.
+        namen = Counter(w["aktion"] for k in (aktionen or {}).values()
+                        for w in k.values() if w.get("aktion"))
+        name = namen.most_common(1)[0][0] if namen else None
+
+    alt = reise.get("aktion") or {}
+    reise["aktion"] = dict(alt)
+    reise["aktion"]["nachlass"] = eigen.get("senkung")
+
+    if not name:
+        reise["aktion"]["name"] = alt.get("name")
+        return reise
+
+    hoechstalter = int(glob.get("verhalten", {}).get("aktion_pruefen_alle_tage", 7) or 7)
+    frisch = alt.get("geprueft") and _tage(alt["geprueft"], heute()) is not None \
+        and _tage(alt["geprueft"], heute()) < hoechstalter
+    if alt.get("name") == name and alt.get("bis") and frisch:
+        reise["aktion"]["name"] = name
+        return reise
+
+    gefunden = None
+    try:
+        gefunden = aktion_aus_seite(roh_html, name, timeout=timeout)
+    except Exception:
+        gefunden = None
+    if gefunden:
+        gefunden["nachlass"] = eigen.get("senkung")
+        reise["aktion"] = gefunden
+    else:
+        # Kein Fenster gefunden: Namen uebernehmen, ein von Hand gepflegtes
+        # Datum aber nicht wegwerfen.
+        reise["aktion"]["name"] = name
+        reise["aktion"].setdefault("bis", alt.get("bis"))
+    return reise
+
+
+def archiv_konstellationen(reise, teile, glob, hoechstens=14):
+    """
+    Welche Kombinationen aus Kategorie und Tarif aus dem euresa-Archiv geholt
+    werden - die eigene zuerst, danach die Nachbarn in beide Richtungen:
+    derselbe Tarif in anderen Kategorien, dieselbe Kategorie in anderen Tarifen.
+    """
+    tarif = reise.get("tarif", "LIGHT")
+    wunsch = gruppen_aus(reise)[0]["name"] if gruppen_aus(reise) else ""
+    kategorien = [k for k in teile["kategorien"] if k]
+    tarife = [t for t in teile["tarife"] if t in (glob.get("tarife") or [])]
+
+    aus = []
+
+    def dazu(kat, tar, flug):
+        if kat in kategorien and tar in tarife and (kat, tar, flug) not in aus:
+            aus.append((kat, tar, flug))
+
+    dazu(wunsch, tarif, False)
+    dazu(wunsch, tarif, True)
+    for kat in (reise.get("preisreihen") or []) + kategorien:
+        dazu(kat, tarif, False)
+    for tar in tarife:
+        dazu(wunsch, tar, False)
+    return aus[:hoechstens]
+
+
+def hole_archiv(reise, glob, ordner, roh_html, preis_zeilen):
+    """
+    Holt die Preisaenderungs-Historie aus der Livewire-Komponente der
+    Reiseseite und fuehrt sie ins eigene Archiv zusammen. Gibt die Zahl der
+    abgefragten Konstellationen zurueck.
+    """
+    teile = livewire_teile(roh_html)
+    if not teile:
+        raise Fehler("Preisentwicklung nicht gefunden - Seitenaufbau geaendert.")
+    hoechstens = int(glob.get("verhalten", {}).get("archiv_konstellationen", 14) or 0)
+    if hoechstens <= 0:
+        return 0
+    referer = PREIS_URL.format(code=reise["code"])
+    gezogen = 0
+    for kat, tar, flug in archiv_konstellationen(reise, teile, glob, hoechstens):
+        saetze = hole_preisaenderungen(teile, kat, tar, flug, referer)
+        if saetze is None:
+            continue
+        gezogen += 1
+        if saetze:
+            merke_aenderungen(ordner, reise["code"], kat, tar, flug, saetze)
+    return gezogen
 
 
 # --------------------------------------------------------------------------
@@ -590,7 +956,7 @@ def geschwister_codes(code, vor=4, nach=4):
     return aus
 
 
-def hole_vergleich(reise, glob, ordner=ORDNER, vor=4, nach=4):
+def hole_vergleich(reise, glob, ordner=ORDNER, vor=None, nach=None):
     """
     Holt die Preistabellen der Nachbartermine. Nur euresa-Seiten, keine
     Buchungsstrecke - das ist eine normale Website und vertraegt das.
@@ -599,6 +965,9 @@ def hole_vergleich(reise, glob, ordner=ORDNER, vor=4, nach=4):
     tarife = glob["tarife"]
     tarif = reise.get("tarif", "LIGHT")
     wunsch = (gruppen_aus(reise)[0]["name"] if gruppen_aus(reise) else "")
+    verhalten = glob.get("verhalten", {})
+    vor = int(verhalten.get("vergleich_wochen_vor", 4)) if vor is None else vor
+    nach = int(verhalten.get("vergleich_wochen_nach", 4)) if nach is None else nach
 
     termine = []
     for code, datum in geschwister_codes(reise["code"], vor, nach):
@@ -618,6 +987,16 @@ def hole_vergleich(reise, glob, ordner=ORDNER, vor=4, nach=4):
                 "hat_tarif_irgendwo": [k for k in tabelle if tabelle[k].get(tarif) is not None],
                 "kategorien": len(tabelle),
             })
+        except Fehler as e:
+            # "Seite da, aber keine Preise" heisst nicht "Abruf kaputt", sondern
+            # dass an dem Termin nichts mehr verkauft wird. Das ist eine Aussage,
+            # kein Fehler - und darf nicht wie ein Lesefehler aussehen.
+            text = str(e)
+            if "keine Preise gelesen" in text:
+                eintrag["fehler"] = "keine Preise ausgewiesen – ausgebucht oder kein Verkaufstermin"
+                eintrag["ohne_preise"] = True
+            else:
+                eintrag["fehler"] = text[:200]
         except Exception as e:
             eintrag["fehler"] = str(e)[:200]
         termine.append(eintrag)
@@ -633,11 +1012,28 @@ def lies_vergleich(reise, ordner=ORDNER):
 
 
 def vergleich_faellig(reise, glob, ordner=ORDNER):
-    tage = int(glob.get("verhalten", {}).get("vergleich_alle_tage", 3) or 0)
-    if tage <= 0:
+    """
+    vergleich_alle_tage:  0 = bei jedem Lauf (Voreinstellung)
+                          n = hoechstens alle n Tage
+                         -1 = gar nicht
+
+    Bei jedem Lauf zu vergleichen kostet neun weitere Aufrufe einer ganz
+    normalen Website. Dafuer bleibt die Aussage "nur einer von sieben
+    Nachbarterminen hat den Tarif noch" so aktuell wie der Preis daneben -
+    und die Erosion des Tarifs ueber die Reihe wird ueberhaupt erst messbar.
+    """
+    tage = int(glob.get("verhalten", {}).get("vergleich_alle_tage", 0) or 0)
+    if tage < 0:
         return False
+    if tage == 0:
+        return True
     alt = lies_vergleich(reise, ordner)
     if not alt or not alt.get("stand"):
+        return True
+    # Termine, die beim letzten Mal nicht gelesen werden konnten, sind ein
+    # Grund fuer sich: sonst fehlen sie bis zum naechsten planmaessigen Lauf
+    # stillschweigend in jeder "X von Y"-Aussage.
+    if any(not t.get("erreichbar") for t in alt.get("termine", [])):
         return True
     abstand = _tage(alt["stand"], heute())
     return abstand is None or abstand >= tage
@@ -667,6 +1063,180 @@ def werte_vergleich_aus(vergleich):
 # Einschaetzung: buchen oder warten?
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# Preisaenderungs-Archiv und Tarif-Erosion auswerten
+# --------------------------------------------------------------------------
+
+AENDERUNGEN_HEADER = ["kategorie", "tarif", "flug", "datum", "eur", "prozent", "gesehen"]
+VERGLEICH_HEADER = ["datum", "uhrzeit", "geprueft", "mit_tarif", "anteil_prozent",
+                    "classic_mittel", "classic_min", "classic_max", "codes_mit_tarif"]
+
+
+def prozent(neu, alt):
+    """Prozentuale Veraenderung von alt nach neu - None, wenn nicht berechenbar."""
+    if neu is None or not alt:
+        return None
+    return round((neu - alt) / float(alt) * 100.0, 1)
+
+
+def proz_text(wert, stellen=1):
+    if wert is None:
+        return "-"
+    return ("%+." + str(stellen) + "f %%") % wert
+
+
+def aenderungen_pfad(ordner, code):
+    return os.path.join(daten_ordner(ordner, code), "aenderungen.csv")
+
+
+def lies_aenderungen(ordner, code):
+    return lies_csv(aenderungen_pfad(ordner, code))
+
+
+def merke_aenderungen(ordner, code, kategorie, tarif, mit_flug, saetze):
+    """
+    euresa zeigt nur die letzten zehn Aenderungen je Konstellation. Wer sie bei
+    jedem Lauf abholt und zusammenfuehrt, baut sich daraus ein Archiv, das
+    weiter zurueckreicht als die zehn - und als die eigene Messreihe.
+    """
+    pfad = aenderungen_pfad(ordner, code)
+    zeilen = lies_csv(pfad)
+    flug = "1" if mit_flug else "0"
+    for satz in saetze or []:
+        zeilen = upsert(zeilen, {
+            "kategorie": kategorie, "tarif": tarif, "flug": flug,
+            "datum": satz["datum"], "eur": satz["eur"],
+            "prozent": "" if satz.get("prozent") is None else satz["prozent"],
+            "gesehen": heute(),
+        }, schluessel=("kategorie", "tarif", "flug", "datum"))
+    zeilen.sort(key=lambda z: (z.get("kategorie", ""), z.get("tarif", ""),
+                               z.get("flug", ""), z.get("datum", "")))
+    schreib_csv(pfad, AENDERUNGEN_HEADER, zeilen)
+    return zeilen
+
+
+def waehle_aenderungen(zeilen, kategorie, tarif, mit_flug=False):
+    flug = "1" if mit_flug else "0"
+    treffer = [z for z in zeilen
+               if z.get("kategorie") == kategorie and z.get("tarif") == tarif
+               and z.get("flug", "0") == flug and z.get("datum")]
+    return sorted(treffer, key=lambda z: z["datum"])
+
+
+def werte_aenderungen_aus(zeilen, fenster_tage=180, stichtag=None):
+    """
+    Was das Archiv ueber das Verhalten der Preise sagt: wie oft sie sich
+    bewegen, in welche Richtung, wie gross die Schritte sind und wie lange die
+    letzte Bewegung her ist. Das ist Statistik ueber die Vergangenheit,
+    ausdruecklich keine Vorhersage.
+    """
+    stichtag = stichtag or heute()
+    im_fenster = []
+    for z in zeilen:
+        alter = _tage(z["datum"], stichtag)
+        if alter is not None and 0 <= alter <= fenster_tage:
+            im_fenster.append(z)
+    if not im_fenster:
+        return None
+
+    betraege = [zahl(z.get("eur")) for z in im_fenster]
+    betraege = [b for b in betraege if b is not None]
+    hoch = [b for b in betraege if b > 0]
+    runter = [b for b in betraege if b < 0]
+    prozente = []
+    for z in im_fenster:
+        try:
+            prozente.append(float(z.get("prozent")))
+        except (TypeError, ValueError):
+            pass
+
+    tage = [_tage(im_fenster[0]["datum"], z["datum"]) for z in im_fenster]
+    spanne = max(t for t in tage if t is not None) if len(im_fenster) > 1 else 0
+    abstand = round(spanne / float(len(im_fenster) - 1), 1) if len(im_fenster) > 1 else None
+
+    letzte = im_fenster[-1]
+    letzte_prozent = None
+    try:
+        letzte_prozent = float(letzte.get("prozent"))
+    except (TypeError, ValueError):
+        pass
+
+    return {
+        "fenster_tage": fenster_tage,
+        "anzahl": len(im_fenster),
+        "hoch": len(hoch),
+        "runter": len(runter),
+        "netto_eur": sum(betraege),
+        "netto_prozent": round(sum(prozente), 1) if prozente else None,
+        "schritt_hoch_mittel": int(round(sum(hoch) / float(len(hoch)))) if hoch else None,
+        "schritt_runter_mittel": int(round(sum(runter) / float(len(runter)))) if runter else None,
+        "abstand_tage": abstand,
+        "beobachtet_tage": spanne,
+        "letzte_datum": letzte["datum"],
+        "letzte_eur": zahl(letzte.get("eur")),
+        "letzte_prozent": letzte_prozent,
+        "tage_seit_letzter": _tage(letzte["datum"], stichtag),
+    }
+
+
+def tarif_verlauf(preis_zeilen, kategorien, tarif):
+    """
+    Wie viele Kabinenkategorien den Tarif an jedem Messtag noch hatten - die
+    einzige Spur, die das Kontingent eines Tarifs in den Daten hinterlaesst.
+    Es gibt keine Zahl "noch X Light-Plaetze frei"; sichtbar ist nur, wann eine
+    Kategorie den Tarifpreis verliert.
+    """
+    verlauf = []
+    vorher = None
+    for zeile in preis_zeilen:
+        mit = [k for k in kategorien if zahl(zeile.get("%s|%s" % (k, tarif))) is not None]
+        verloren = sorted(set(vorher) - set(mit)) if vorher is not None else []
+        zurueck = sorted(set(mit) - set(vorher)) if vorher is not None else []
+        verlauf.append({"datum": zeile.get("datum"), "anzahl": len(mit),
+                        "kategorien": mit, "verloren": verloren, "zurueck": zurueck})
+        vorher = mit
+    return verlauf
+
+
+def vergleich_pfad(ordner, code):
+    return os.path.join(daten_ordner(ordner, code), "vergleich.csv")
+
+
+def merke_vergleich(ordner, code, vergleich, uhrzeit):
+    """Ein Datenpunkt je Lauf: wie viele Nachbartermine den Tarif noch haben."""
+    ausgewertet = werte_vergleich_aus(vergleich)
+    if not ausgewertet:
+        return []
+    mit_tarif = [t.get("code") for t in vergleich.get("termine", [])
+                 if t.get("erreichbar") and t.get("wunsch_tarif") is not None]
+    anteil = round(ausgewertet["mit_tarif"] / float(ausgewertet["geprueft"]) * 100, 1)
+    zeilen = upsert(lies_csv(vergleich_pfad(ordner, code)), {
+        "datum": heute(), "uhrzeit": uhrzeit,
+        "geprueft": ausgewertet["geprueft"], "mit_tarif": ausgewertet["mit_tarif"],
+        "anteil_prozent": anteil,
+        "classic_mittel": ausgewertet["classic_mittel"] or "",
+        "classic_min": ausgewertet["classic_min"] or "",
+        "classic_max": ausgewertet["classic_max"] or "",
+        "codes_mit_tarif": json.dumps(mit_tarif, ensure_ascii=False),
+    })
+    schreib_csv(vergleich_pfad(ordner, code), VERGLEICH_HEADER, zeilen)
+    return zeilen
+
+
+def erosion_aus_vergleich(zeilen):
+    """Wie sich die Tarifverfuegbarkeit ueber die Nachbartermine entwickelt hat."""
+    sauber = [z for z in zeilen if zahl(z.get("geprueft"))]
+    if len(sauber) < 2:
+        return None
+    erst, letzt = sauber[0], sauber[-1]
+    tage = _tage(erst["datum"], letzt["datum"])
+    return {
+        "seit": erst["datum"], "tage": tage,
+        "von_mit_tarif": zahl(erst.get("mit_tarif")), "von_geprueft": zahl(erst.get("geprueft")),
+        "auf_mit_tarif": zahl(letzt.get("mit_tarif")), "auf_geprueft": zahl(letzt.get("geprueft")),
+    }
+
+
 def steigung(punkte):
     """
     Lineare Ausgleichsgerade durch (Tag, Wert). Rueckgabe: Einheiten pro Tag.
@@ -685,7 +1255,8 @@ def steigung(punkte):
     return zaehler / nenner
 
 
-def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage, vergleich=None):
+def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage, vergleich=None,
+                  aenderungen=None, vergleich_verlauf=None):
     """
     Eine begruendete Einschaetzung - ausdruecklich KEINE Vorhersage.
     Jedes Signal wird mit seiner tatsaechlichen Zahl ausgewiesen, damit
@@ -717,7 +1288,8 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage, vergleich=Non
             "signale": ["Das %s-Kontingent für %s ist erschöpft. Entweder ein anderer Tarif, "
                         "eine andere Kategorie – oder beim AIDA-Berater nachfragen, ob noch "
                         "etwas frei ist." % (tarif, name)],
-            "kennzahlen": kennzahlen,
+            "kennzahlen": kennzahlen, "archiv": None, "erosion": None,
+            "warten": {}, "tarif_verlauf": [],
         }
 
     # --- Preisentwicklung
@@ -734,24 +1306,40 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage, vergleich=Non
         kennzahlen["preis_hoch"] = max(werte)
         kennzahlen["preis_heute"] = werte[-1]
 
+    # Prozente sagen mehr als Beträge: +80 € sind bei der Innenkabine 5,6 %,
+    # bei der Junior-Suite 2,2 % - dieselbe Zahl, ein anderer Vorgang.
+    if len(werte) > 1:
+        kennzahlen["preis_prozent_seit_beginn"] = prozent(werte[-1], werte[0])
+        kennzahlen["preis_eur_seit_beginn"] = werte[-1] - werte[0]
+    if p_trend is not None and werte and werte[-1]:
+        kennzahlen["preis_trend_prozent_pro_tag"] = round(p_trend / float(werte[-1]) * 100, 2)
+
+    seit_beginn = kennzahlen.get("preis_prozent_seit_beginn")
+    anhang = "" if seit_beginn is None else (" Seit Beobachtungsbeginn %+d € (%s)."
+                                             % (kennzahlen["preis_eur_seit_beginn"],
+                                                proz_text(seit_beginn)))
     if p_trend is not None:
+        proz_tag = kennzahlen.get("preis_trend_prozent_pro_tag")
+        tempo = "%+.0f € pro Tag" % p_trend
+        if proz_tag:
+            tempo += " (%s)" % proz_text(proz_tag, 2)
         if p_trend > 5:
             punkte += 2
-            treiber.append((3, "Preis steigt um %+.0f € pro Tag" % p_trend))
-            signale.append("Der Preis steigt: rund %+.0f € pro Tag über die bisherige Messreihe."
-                           % p_trend)
+            treiber.append((3, "Preis steigt um %s" % tempo))
+            signale.append("Der Preis steigt: rund %s über die bisherige Messreihe.%s"
+                           % (tempo, anhang))
         elif p_trend < -5:
             punkte -= 2
-            signale.append("Der Preis fällt noch: rund %+.0f € pro Tag. Abwarten hat bisher "
-                           "Geld gespart." % p_trend)
+            signale.append("Der Preis fällt noch: rund %s. Abwarten hat bisher "
+                           "Geld gespart.%s" % (tempo, anhang))
         else:
-            signale.append("Der Preis bewegt sich kaum (%+.1f € pro Tag)." % p_trend)
+            signale.append("Der Preis bewegt sich kaum (%s).%s" % (tempo, anhang))
     elif len(werte) > 1:
-        d = werte[-1] - werte[0]
-        signale.append("Preis seit Beobachtungsbeginn %+d € – für einen Trend sind es noch "
-                       "zu wenige Messungen." % d)
+        signale.append("Preis seit Beobachtungsbeginn %+d € (%s) – für einen Trend aus der "
+                       "eigenen Messreihe sind es noch zu wenige Messungen."
+                       % (kennzahlen["preis_eur_seit_beginn"], proz_text(seit_beginn)))
     else:
-        signale.append("Erst eine Preismessung – noch kein Trend erkennbar.")
+        signale.append("Erst eine Preismessung – aus der eigenen Reihe noch kein Trend.")
 
     if werte and len(werte) >= 3 and max(werte) > min(werte):
         tief = min(werte)
@@ -761,6 +1349,97 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage, vergleich=Non
         elif tief and (werte[-1] - tief) / float(tief) > 0.03:
             signale.append("Aktuell %s € über dem bisherigen Tief von %s €."
                            % (euro(werte[-1] - tief), euro(tief)))
+
+    # --- Was euresa selbst mitschreibt: jede Preisaenderung seit Juni 2025.
+    #     Die eigene Messreihe ist Tage alt, dieses Archiv Monate - fuer die
+    #     Frage "wie oft und wie stark bewegt sich der Preis eigentlich" ist
+    #     es die einzige belastbare Quelle.
+    archiv = werte_aenderungen_aus(waehle_aenderungen(aenderungen or [], name, tarif))
+    kennzahlen["archiv"] = archiv
+    if archiv and archiv["anzahl"] >= 2:
+        richtung = ("%d nach oben, %d nach unten"
+                    % (archiv["hoch"], archiv["runter"]))
+        netto = "%+d €" % archiv["netto_eur"]
+        if archiv["netto_prozent"] is not None:
+            netto += " (%s)" % proz_text(archiv["netto_prozent"])
+        signale.append("euresa hat für %s im Tarif %s in den letzten %d Tagen "
+                       "%d Preisänderungen verzeichnet – %s, unterm Strich %s."
+                       % (name, tarif, archiv["beobachtet_tage"] or archiv["fenster_tage"],
+                          archiv["anzahl"], richtung, netto))
+        if archiv["abstand_tage"]:
+            rhythmus = ("Im Schnitt bewegt sich dieser Preis alle %.1f Tage."
+                        % archiv["abstand_tage"])
+            if archiv["tage_seit_letzter"] is not None:
+                letzte = "%+d €" % archiv["letzte_eur"]
+                if archiv["letzte_prozent"] is not None:
+                    letzte += " / %s" % proz_text(archiv["letzte_prozent"])
+                rhythmus += (" Die letzte war vor %d Tagen (%s, %s)."
+                             % (archiv["tage_seit_letzter"], archiv["letzte_datum"], letzte))
+                if archiv["tage_seit_letzter"] > archiv["abstand_tage"] * 1.5:
+                    rhythmus += (" Nach diesem Rhythmus ist die nächste Änderung überfällig – "
+                                 "das ist eine Beobachtung über die Vergangenheit, keine Zusage.")
+            signale.append(rhythmus)
+        if archiv["hoch"] and archiv["hoch"] >= 2 * max(archiv["runter"], 1):
+            punkte += 1
+            treiber.append((3, "%d von %d Änderungen gingen nach oben"
+                            % (archiv["hoch"], archiv["anzahl"])))
+            signale.append("Von %d Änderungen gingen %d nach oben. Bei dieser Reise hat sich "
+                           "Warten in der Vergangenheit überwiegend verteuert."
+                           % (archiv["anzahl"], archiv["hoch"]))
+        elif archiv["runter"] > archiv["hoch"]:
+            punkte -= 1
+            signale.append("Von %d Änderungen gingen %d nach unten – der Preis ist bei dieser "
+                           "Reise bisher eher gefallen als gestiegen."
+                           % (archiv["anzahl"], archiv["runter"]))
+    elif archiv:
+        signale.append("Im euresa-Archiv steht für %s im Tarif %s bisher nur eine Änderung "
+                       "(%s, %+d €)." % (name, tarif, archiv["letzte_datum"], archiv["letzte_eur"]))
+    else:
+        signale.append("Für %s im Tarif %s hat euresa noch keine Preisänderung verzeichnet – "
+                       "dieser Preis steht, solange er beobachtet wird." % (name, tarif))
+
+    # --- Tarif-Erosion: wie viele Kategorien den Tarif ueber die Zeit verlieren.
+    #     Es gibt keine Zahl "noch X Kontingente frei"; die einzige Spur, die
+    #     ein erschoepftes Kontingent hinterlaesst, ist der verschwundene Preis.
+    verlauf = tarif_verlauf(preis_zeilen, glob.get("kategorien") or [], tarif)
+    if len(verlauf) > 1:
+        erst, letzt = verlauf[0], verlauf[-1]
+        kennzahlen["kategorien_mit_tarif"] = letzt["anzahl"]
+        kennzahlen["kategorien_mit_tarif_beginn"] = erst["anzahl"]
+        gefallen = [(s["datum"], k) for s in verlauf[1:] for k in s["verloren"]]
+        kennzahlen["tarif_verluste"] = [{"datum": d, "kategorie": k} for d, k in gefallen]
+        if gefallen:
+            punkte += 1
+            jung = gefallen[-1]
+            treiber.append((4, "%s hat %s am %s verloren" % (jung[1], tarif, jung[0])))
+            signale.append("Seit Beobachtungsbeginn hat %s den %s-Tarif verloren (%s). "
+                           "Von %d Kategorien bieten ihn noch %d."
+                           % (", ".join(k for _, k in gefallen), tarif,
+                              ", ".join(d for d, _ in gefallen),
+                              erst["anzahl"], letzt["anzahl"]))
+        elif letzt["anzahl"] == erst["anzahl"]:
+            signale.append("Die Zahl der Kategorien mit %s-Tarif ist seit Beobachtungsbeginn "
+                           "unverändert (%d)." % (tarif, letzt["anzahl"]))
+
+    # --- Dasselbe ueber die Nachbartermine: erst der Verlauf macht daraus eine
+    #     Erosionskurve statt einer Momentaufnahme.
+    erosion = erosion_aus_vergleich(vergleich_verlauf or [])
+    kennzahlen["erosion"] = erosion
+    if erosion and erosion["von_mit_tarif"] is not None and erosion["tage"]:
+        weg = erosion["von_mit_tarif"] - erosion["auf_mit_tarif"]
+        if weg > 0:
+            punkte += 1
+            treiber.append((4, "%d Nachbartermine haben %s in %d Tagen verloren"
+                            % (weg, tarif, erosion["tage"])))
+            signale.append("Vor %d Tagen hatten noch %d von %d Nachbarterminen den %s-Tarif, "
+                           "heute sind es %d von %d. Das Kontingent zieht sich messbar zurück."
+                           % (erosion["tage"], erosion["von_mit_tarif"], erosion["von_geprueft"],
+                              tarif, erosion["auf_mit_tarif"], erosion["auf_geprueft"]))
+        elif weg < 0:
+            signale.append("Über die Nachbartermine ist der %s-Tarif seit %d Tagen sogar wieder "
+                           "häufiger geworden (%d statt %d von %d)."
+                           % (tarif, erosion["tage"], erosion["auf_mit_tarif"],
+                              erosion["von_mit_tarif"], erosion["auf_geprueft"]))
 
     # --- Kabinenabfluss der Wunschkategorie
     reihe = zeilen_der_gruppe(kabinen_zeilen, name)
@@ -900,6 +1579,52 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage, vergleich=Non
         signale.append("Nur noch %d Tage bis zur Abreise – so kurz vorher werden günstige "
                        "Tarifkontingente selten wieder aufgefüllt." % bis_abreise)
 
+    # --- Was Warten konkret kostet
+    #
+    # Zwei Zahlen, die sich beziffern lassen, statt eines Gefuehls:
+    #   * das Rueckfallrisiko - faellt der Tarif weg, kostet dieselbe Kabine
+    #     den naechstguenstigen Tarif,
+    #   * die Drift - was der Preis nach dem bisherigen Rhythmus in 30 Tagen
+    #     macht. Das ist eine Fortschreibung der Vergangenheit, nichts weiter.
+    warten = {}
+    letzte_zeile = preis_zeilen[-1] if preis_zeilen else {}
+    eigener = haupt.get("preis_heute")
+    if eigener:
+        alternativen = []
+        for tar in (glob.get("tarife") or []):
+            if tar == tarif:
+                continue
+            wert = zahl(letzte_zeile.get("%s|%s" % (name, tar)))
+            if wert is not None and wert > eigener:
+                alternativen.append((wert, tar))
+        if alternativen:
+            aufpreis, ersatz = min(alternativen)
+            warten["rueckfall_tarif"] = ersatz
+            warten["rueckfall_eur"] = aufpreis - eigener
+            warten["rueckfall_prozent"] = prozent(aufpreis, eigener)
+            signale.append("Fällt %s weg, ist %s der nächstgünstigste Tarif für %s: %s € statt "
+                           "%s €, also %+d € (%s). Das ist der Betrag, um den es beim Warten "
+                           "wirklich geht."
+                           % (tarif, ersatz, name, euro(aufpreis), euro(eigener),
+                              warten["rueckfall_eur"], proz_text(warten["rueckfall_prozent"])))
+        else:
+            warten["rueckfall_tarif"] = None
+            signale.append("Für %s gibt es keinen teureren Tarif mehr in der Tafel – fällt %s "
+                           "weg, ist die Kategorie in dieser Preisklasse erledigt."
+                           % (name, tarif))
+
+    if archiv and archiv["beobachtet_tage"] and archiv["netto_eur"]:
+        pro_tag = archiv["netto_eur"] / float(max(archiv["beobachtet_tage"], 1))
+        warten["drift_30_tage_eur"] = int(round(pro_tag * 30))
+        if eigener:
+            warten["drift_30_tage_prozent"] = prozent(eigener + warten["drift_30_tage_eur"], eigener)
+        signale.append("Im Tempo der letzten %d Tage wären das in 30 Tagen %+d €%s – reine "
+                       "Fortschreibung, keine Vorhersage."
+                       % (archiv["beobachtet_tage"], warten["drift_30_tage_eur"],
+                          "" if warten.get("drift_30_tage_prozent") is None
+                          else " (%s)" % proz_text(warten["drift_30_tage_prozent"])))
+    kennzahlen["warten"] = warten
+
     # --- Vertrauen in die Aussage
     breit = v and v["geprueft"] >= 6
     if kennzahlen["messungen"] >= 20 and kennzahlen["tage_beobachtet"] >= 14:
@@ -931,7 +1656,9 @@ def einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage, vergleich=Non
         kurz = "mehrere kleine Signale"
 
     return {"stufe": stufe, "titel": titel, "farbe": farbe, "vertrauen": vertrauen,
-            "kurz": kurz, "signale": signale, "kennzahlen": kennzahlen}
+            "kurz": kurz, "signale": signale, "kennzahlen": kennzahlen,
+            "archiv": archiv, "erosion": erosion, "warten": warten,
+            "tarif_verlauf": verlauf if len(verlauf) > 1 else []}
 
 
 def _macos_mitteilung(titel, text):
@@ -1138,9 +1865,13 @@ def lauf_reise(reise, glob, ordner=ORDNER, trocken=False):
             fehler.append("Kabinenabruf: %s" % e)
 
     # ---- Preise ----------------------------------------------------------
+    # Ein einziger Seitenaufruf, aus dem alles Weitere faellt: die vollstaendige
+    # Preistafel, die Aktionshinweise an den Kacheln und die Bausteine fuer das
+    # Preisaenderungs-Archiv. Deshalb wird der Quelltext hier festgehalten.
+    roh_html = None
     try:
         roh_html = http_get(PREIS_URL.format(code=code))
-        tabelle, _ = parse_preise(roh_html, kategorien, tarife)
+        tabelle, preis_zeilen_text = parse_preise(roh_html, kategorien, tarife)
         zeile = {"datum": datum, "uhrzeit": uhrzeit}
         for kat in tabelle:
             for tar in tarife:
@@ -1154,15 +1885,32 @@ def lauf_reise(reise, glob, ordner=ORDNER, trocken=False):
                         preis_zeilen)
         else:
             preis_zeilen = upsert(preis_zeilen, zeile)
+
+        # ---- Aktion: Name und Nachlass stehen an den Preiskacheln
+        try:
+            aktionen = parse_aktionen(preis_zeilen_text, kategorien, tarife)
+            reise = merke_aktion(reise, aktionen, roh_html, glob)
+        except Exception as e:
+            fehler.append("Aktion: %s" % e)
     except Fehler as e:
         fehler.append("Preisabruf: %s" % e)
     except Exception as e:
         fehler.append("Preisabruf: %s" % e)
 
-    # ---- Vergleichstermine (nur alle paar Tage - sind neun weitere Seitenaufrufe)
+    # ---- Preisaenderungs-Archiv von euresa
+    if roh_html and not trocken:
+        try:
+            gezogen = hole_archiv(reise, glob, ordner, roh_html, preis_zeilen)
+            if gezogen:
+                log("   Preisaenderungen: %d Konstellationen abgeglichen" % gezogen)
+        except Exception as e:
+            fehler.append("Preisaenderungen: %s" % e)
+
+    # ---- Vergleichstermine
     if not trocken and vergleich_faellig(reise, glob, ordner):
         try:
-            hole_vergleich(reise, glob, ordner)
+            vergleich_neu = hole_vergleich(reise, glob, ordner)
+            merke_vergleich(ordner, code, vergleich_neu, uhrzeit)
         except Exception as e:
             fehler.append("Vergleichstermine: %s" % e)
 
@@ -1179,7 +1927,9 @@ def lauf_reise(reise, glob, ordner=ORDNER, trocken=False):
     return {"code": code, "reise": reise, "lage": lage, "fehler": fehler,
             "zaehlung": zaehlung, "stand": "%s %s" % (datum, uhrzeit),
             "einschaetzung": einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage,
-                                           lies_vergleich(reise, ordner))}
+                                           lies_vergleich(reise, ordner),
+                                           lies_aenderungen(ordner, code),
+                                           lies_csv(vergleich_pfad(ordner, code)))}
 
 
 def aufraeumen(raw_ordner, tage):
@@ -1240,6 +1990,8 @@ def status(ordner=ORDNER):
         kabinen_zeilen = lies_csv(os.path.join(dordner, "kabinen.csv"))
         lage = bewerte(reise, glob, preis_zeilen, kabinen_zeilen)
         vergleich = lies_vergleich(reise, ordner)
+        aenderungen = lies_aenderungen(ordner, code)
+        vergleich_verlauf = lies_csv(vergleich_pfad(ordner, code))
         ausgabe.append({
             "reise": reise,
             "laeuft": ueberwachung_laeuft(reise),
@@ -1249,8 +2001,10 @@ def status(ordner=ORDNER):
             "kabinen": kabinen_zeilen,
             "lage": lage,
             "vergleich": vergleich,
+            "aenderungen": aenderungen,
+            "vergleich_verlauf": vergleich_verlauf,
             "einschaetzung": einschaetzung(reise, glob, preis_zeilen, kabinen_zeilen, lage,
-                                           vergleich),
+                                           vergleich, aenderungen, vergleich_verlauf),
         })
     return {"stand": jetzt_lokal().strftime("%Y-%m-%d %H:%M"),
             "global": glob, "reisen": ausgabe}

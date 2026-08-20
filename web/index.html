@@ -265,6 +265,16 @@
   // ------------------------------------------------------------ Helfer
   function num(v) { if (v === "" || v == null) return null; var n = +v; return isFinite(n) ? n : null; }
   function eur(n) { return n == null ? "–" : n.toLocaleString("de-DE") + " €"; }
+  // Prozente machen Beträge vergleichbar: +80 € sind an der Innenkabine 5,6 %,
+  // an der Junior-Suite 2,2 % – dieselbe Zahl, ein anderer Vorgang.
+  function proz(n, stellen) {
+    if (n == null || !isFinite(n)) return "–";
+    return (n > 0 ? "+" : "") + n.toFixed(stellen == null ? 1 : stellen).replace(".", ",") + " %";
+  }
+  function prozVon(neuW, altW) {
+    if (neuW == null || !altW) return null;
+    return (neuW - altW) / altW * 100;
+  }
   function dt(s) { var p = s.split("-"); return p[2] + "." + p[1] + "."; }
   function dtLang(s) { if (!s) return "–"; var p = s.split("-"); return p[2] + "." + p[1] + "." + p[0]; }
   function heute() { var d = new Date(); return d.getFullYear() + "-" +
@@ -736,10 +746,15 @@
       var ul = el("ul");
       (EIN.signale || []).forEach(function (z) { ul.appendChild(el("li", { text: z })); });
       warum.appendChild(ul);
+      var quellen = kz.messungen + " eigene Messungen über " +
+        (kz.tage_beobachtet === 1 ? "1 Tag" : (kz.tage_beobachtet || 0) + " Tage");
+      if (kz.archiv && kz.archiv.anzahl) {
+        quellen += " · " + kz.archiv.anzahl + " Preisänderungen aus dem euresa-Archiv über " +
+          kz.archiv.beobachtet_tage + " Tage";
+      }
       warum.appendChild(el("div", { class: "fuss", text:
-        "Regelbasierte Einschätzung aus der eigenen Messreihe, keine Vorhersage. " +
-        kz.messungen + " Messungen über " + (kz.tage_beobachtet === 1 ? "1 Tag"
-          : (kz.tage_beobachtet || 0) + " Tage") + " · Vertrauen: " + EIN.vertrauen + "." }));
+        "Regelbasierte Einschätzung, keine Vorhersage. " + quellen +
+        " · Vertrauen: " + EIN.vertrauen + "." }));
       if (!mobil) warum.open = true;
       hero.appendChild(warum);
       app.appendChild(hero);
@@ -778,9 +793,29 @@
     kachel(HAUPT.name + " " + (R.tarif || "LIGHT"), ph == null ? "kein Preis" : eur(ph),
       personen + " Pers., ohne Flug",
       pv == null ? "erste Messung"
-        : (ph === pv ? "unverändert zum " + dt(pV.datum)
-          : (ph - pv > 0 ? "+" : "") + eur(ph - pv) + " zum " + dt(pV.datum)),
+        : (ph === pv
+          ? (pe != null && ph !== pe
+            ? (ph - pe > 0 ? "+" : "") + eur(ph - pe) + " / " + proz(prozVon(ph, pe)) + " seit Beginn"
+            : "unverändert zum " + dt(pV.datum))
+          : (ph - pv > 0 ? "+" : "") + eur(ph - pv) + " / " + proz(prozVon(ph, pv)) + " zum " + dt(pV.datum)),
       pv == null ? "" : (ph > pv ? "up" : (ph < pv ? "down" : "")));
+
+    // Aktion: Name, Nachlass und Restlaufzeit stehen bei euresa auf der Seite –
+    // bis hierher waren sie von Hand in der Reisedatei gepflegt.
+    (function aktionsKachel() {
+      var A = R.aktion || {};
+      if (!A.name) return;
+      var restTage = null;
+      if (A.bis) {
+        restTage = Math.round((new Date(A.bis) - new Date((D.stand || "").slice(0, 10))) / 86400000);
+      }
+      kachel("Aktion", A.name,
+        A.nachlass ? "Nachlass " + A.nachlass + " € auf " + kurzName(HAUPT.name) : "läuft",
+        A.bis == null ? "kein Zeitraum gefunden"
+          : (restTage < 0 ? "seit " + (-restTage) + " Tagen vorbei"
+            : "noch " + restTage + (restTage === 1 ? " Tag" : " Tage") + " – bis " + dtLang(A.bis)),
+        (restTage != null && restTage >= 0 && restTage <= 7) ? "up" : "");
+    })();
     FH.forEach(function (fh) {
       var w = pp(ph, fh), we = pp(pe, fh);
       kachel("pro Person inkl. Flug ab " + fh, w == null ? "–" : eur(w),
@@ -948,7 +983,7 @@
 
     // ---- Preistabelle
     var c4 = karte("Vollständige Preistabelle",
-      "Gesamtpreis pro Kabine für " + personen + " Erwachsene, ohne Flug. Ein Strich bedeutet: in diesem Tarif nicht mehr buchbar. Klammerwert = Veränderung seit Beobachtungsbeginn.");
+      "Gesamtpreis pro Kabine für " + personen + " Erwachsene, ohne Flug. Ein Strich bedeutet: in diesem Tarif nicht mehr buchbar. Klammerwert = Veränderung seit Beobachtungsbeginn (" + dtLang(pE ? pE.datum : null) + "), in Euro und Prozent. Darunter der von euresa ausgewiesene Aktionsnachlass.");
     var c4tab = el("div", { class: "scroller" }); c4.appendChild(c4tab);
     (function tabelle() {
       if (!pH) { c4tab.innerHTML = "<p class='note'>Noch keine Messung.</p>"; return; }
@@ -977,8 +1012,16 @@
           var v = num(pH[kat + "|" + tar]), e0 = pE ? num(pE[kat + "|" + tar]) : null;
           if (v == null) { row.appendChild(el("td", { class: "none", text: "—" })); return; }
           var txt = eur(v);
-          if (e0 != null && e0 !== v) txt += " (" + (v - e0 > 0 ? "+" : "") + (v - e0) + ")";
-          row.appendChild(el("td", { text: txt }));
+          if (e0 != null && e0 !== v) {
+            txt += " (" + (v - e0 > 0 ? "+" : "") + (v - e0) + " € / " + proz(prozVon(v, e0)) + ")";
+          }
+          var zelle = el("td", { text: txt });
+          var akt = ((R.aktionen || {})[kat] || {})[tar];
+          if (akt && akt.senkung) {
+            zelle.appendChild(el("div", { class: "delta down",
+              text: "Aktion " + akt.senkung + " €" }));
+          }
+          row.appendChild(zelle);
         });
         tb.appendChild(row);
       });
@@ -1053,6 +1096,139 @@
         "Ein Strich bedeutet: dieser Tarif wird für die Kategorie an dem Termin gar nicht " +
         "mehr angeboten. Die Routen unterscheiden sich (Korsika, Gibraltar, Sardinien) – " +
         "die Preise sind daher nur grob vergleichbar, die Tarifverfügbarkeit dagegen sehr wohl." }));
+    }
+
+    // ---- Preisänderungs-Archiv von euresa
+    // Die eigene Messreihe ist ein paar Tage lang. euresa schreibt seit Juni 2025
+    // jede Preisänderung mit – das ist die einzige Quelle, aus der sich
+    // beantworten lässt, wie oft und wie stark sich dieser Preis bewegt.
+    var AEN = E.aenderungen || [];
+    if (AEN.length) {
+      var ca = karte("Preisänderungen im Archiv von euresa",
+        "Nicht selbst gemessen, sondern von euresa übernommen: jede registrierte " +
+        "Preisänderung dieser Reise – auch die aus der Zeit vor dieser Überwachung.");
+
+      // Die eigene Konstellation steht immer vorn und immer drin – auch wenn
+      // euresa für sie noch keine Änderung kennt. Genau das ist eine Aussage.
+      var eigen = HAUPT.name + "|" + (R.tarif || "LIGHT") + "|0";
+      var kombis = [];
+      AEN.forEach(function (z) {
+        var id = z.kategorie + "|" + z.tarif + "|" + (z.flug || "0");
+        if (id !== eigen && kombis.indexOf(id) < 0) kombis.push(id);
+      });
+      kombis.sort();
+      kombis.unshift(eigen);
+      var caModus = eigen;
+      var caPlot = el("div");
+      if (kombis.length > 1) {
+        ca.appendChild(leiste(kombis.map(function (id) {
+          var t = id.split("|");
+          return { id: id, lab: kurzName(t[0]) + " " + t[1] + (t[2] === "1" ? " +Flug" : "") };
+        }), caModus, function (id) { caModus = id; zeichneArchiv(); }));
+      }
+      ca.appendChild(caPlot);
+
+      function zeichneArchiv() {
+        caPlot.innerHTML = "";
+        var teil = caModus.split("|");
+        var rows = AEN.filter(function (z) {
+          return z.kategorie === teil[0] && z.tarif === teil[1] && (z.flug || "0") === teil[2];
+        }).sort(function (a, b) { return a.datum < b.datum ? 1 : -1; });
+        if (!rows.length) {
+          caPlot.appendChild(el("p", { class: "note", text:
+            "Für " + kurzName(teil[0]) + " im Tarif " + teil[1] + " hat euresa keine " +
+            "Preisänderung verzeichnet – dieser Preis steht, seit euresa ihn beobachtet." }));
+          return;
+        }
+        var hoch = rows.filter(function (z) { return num(z.eur) > 0; }).length;
+        var netto = rows.reduce(function (a, z) { return a + (num(z.eur) || 0); }, 0);
+        var spanne = rows.length > 1
+          ? dtLang(rows[rows.length - 1].datum) + " bis " + dtLang(rows[0].datum)
+          : dtLang(rows[0].datum);
+        caPlot.appendChild(el("p", { class: "note", text:
+          rows.length + (rows.length === 1 ? " Änderung" : " Änderungen") + " (" + spanne + "): " +
+          hoch + " nach oben, " + (rows.length - hoch) + " nach unten, unterm Strich " +
+          (netto > 0 ? "+" : "") + netto + " €." }));
+
+        var ta = el("table");
+        ta.appendChild(el("thead", {}, [el("tr", {}, [
+          el("th", { text: "Zeitpunkt" }), el("th", { text: "Änderung" }),
+          el("th", { text: "in Prozent" })])]));
+        var tba = el("tbody");
+        rows.forEach(function (z) {
+          var e = num(z.eur), pz = num(z.prozent);
+          tba.appendChild(el("tr", {}, [
+            el("td", { text: dtLang(z.datum) }),
+            el("td", { class: e > 0 ? "" : "none", text: (e > 0 ? "+" : "") + e + " €" }),
+            el("td", { text: pz == null ? "–" : proz(pz, 2) })]));
+        });
+        ta.appendChild(tba);
+        var w = el("div", { class: "scroller" }); w.appendChild(ta);
+        caPlot.appendChild(w);
+      }
+      zeichneArchiv();
+
+      var arch = (EIN || {}).archiv;
+      if (arch && arch.abstand_tage) {
+        ca.appendChild(el("p", { class: "note", style: "margin-top:10px", text:
+          "Für " + kurzName(HAUPT.name) + " " + (R.tarif || "LIGHT") + " bewegt sich der Preis " +
+          "im Schnitt alle " + String(arch.abstand_tage).replace(".", ",") + " Tage. " +
+          "Die letzte Änderung war am " + dtLang(arch.letzte_datum) + " (" +
+          (arch.letzte_eur > 0 ? "+" : "") + arch.letzte_eur + " €" +
+          (arch.letzte_prozent == null ? "" : " / " + proz(arch.letzte_prozent, 2)) + "), also vor " +
+          arch.tage_seit_letzter + " Tagen. Das beschreibt die Vergangenheit – es sagt nicht, " +
+          "wann die nächste Änderung kommt." }));
+      }
+    }
+
+    // ---- Tarif-Verfügbarkeit im Verlauf
+    // Es gibt keine Zahl "noch X Kontingente frei". Die einzige Spur, die ein
+    // erschöpftes Tarifkontingent hinterlässt, ist der verschwundene Preis –
+    // in der eigenen Preistafel und über die Nachbartermine.
+    var VV = E.vergleich_verlauf || [];
+    var TV = (EIN || {}).tarif_verlauf || [];
+    if (TV.length > 1 || VV.length > 1) {
+      var ck = karte("Wie sich der " + (R.tarif || "LIGHT") + "-Tarif zurückzieht",
+        "Ein Tarifkontingent lässt sich nicht zählen – AIDA weist keine Restzahl aus. " +
+        "Sichtbar wird es nur, wenn der Tarifpreis irgendwo verschwindet. Genau das " +
+        "steht hier: einmal über die Kabinenkategorien dieser Reise, einmal über die " +
+        "Nachbartermine derselben Reihe.");
+      var tk = el("table");
+      tk.appendChild(el("thead", {}, [el("tr", {}, [
+        el("th", { text: "Tag" }),
+        el("th", { text: "Kategorien mit " + (R.tarif || "LIGHT") }),
+        el("th", { text: "Nachbartermine mit " + (R.tarif || "LIGHT") })])]));
+      var tbk = el("tbody");
+      var vvNach = {};
+      VV.forEach(function (z) { vvNach[z.datum] = z; });
+      var tvNach = {};
+      TV.forEach(function (z) { tvNach[z.datum] = z; });
+      var tageK = {};
+      TV.forEach(function (z) { tageK[z.datum] = 1; });
+      VV.forEach(function (z) { tageK[z.datum] = 1; });
+      Object.keys(tageK).sort().reverse().forEach(function (d) {
+        var a = tvNach[d], b = vvNach[d];
+        var zelleA = "–", zelleB = "–";
+        if (a) {
+          zelleA = a.anzahl + (a.verloren && a.verloren.length
+            ? "  (" + a.verloren.map(kurzName).join(", ") + " verloren)" : "");
+        }
+        if (b) zelleB = b.mit_tarif + " von " + b.geprueft;
+        var tr = el("tr", (a && a.verloren && a.verloren.length) ? { class: "hi" } : {}, [
+          el("td", { text: dtLang(d) }), el("td", { text: zelleA }), el("td", { text: zelleB })]);
+        tbk.appendChild(tr);
+      });
+      tk.appendChild(tbk);
+      var wk = el("div", { class: "scroller" }); wk.appendChild(tk);
+      ck.appendChild(wk);
+      var ero = (EIN || {}).erosion;
+      if (ero && ero.tage) {
+        ck.appendChild(el("p", { class: "note", style: "margin-top:10px", text:
+          "Über die Nachbartermine: vor " + ero.tage + " Tagen " + ero.von_mit_tarif +
+          " von " + ero.von_geprueft + ", heute " + ero.auf_mit_tarif + " von " +
+          ero.auf_geprueft + ". Solange nur ein Tag in der Tabelle steht, ist das eine " +
+          "Momentaufnahme – die Kurve entsteht erst mit den nächsten Läufen." }));
+      }
     }
 
     // ---- Links
@@ -1241,7 +1417,10 @@
     app.appendChild(el("footer", { html:
       "Das wichtigste Alarmsignal ist nicht die Kabinenzahl, sondern der <b>Wegfall des Tarifpreises</b> " +
       "bei der Wunschkategorie – das Kontingent eines Tarifs ist viel kleiner als die Zahl der physisch " +
-      "freien Kabinen.<br>" +
+      "freien Kabinen. <b>Eine Restzahl dazu gibt es nirgends:</b> weder AIDA noch euresa weisen aus, " +
+      "wie viele Plätze ein Tarif noch hat. Beobachtbar ist nur, wo der Preis bereits verschwunden ist – " +
+      "in der Preistabelle und über die Nachbartermine. Genau das steht in der Karte " +
+      "„Wie sich der Tarif zurückzieht\".<br>" +
       "Preise von euresa-reisen.de (Kabinenpreis, ohne Flug), Kabinenzahlen aus der Kabinenwahl. " +
       "Verbindlich ist immer aida.de. Die Werte „pro Person inkl. Flug\" enthalten <b>angenommene</b> " +
       "Flugkosten – bewegt sich der echte Flugpreis, sieht diese Messreihe das nicht.<br>" +
