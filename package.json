@@ -20,5 +20,8 @@
     "express": "^4.21.0",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.9.15"
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1"
   }
 }

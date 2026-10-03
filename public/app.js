@@ -10,8 +10,28 @@ const fmtDateShort = (s) => {
   if (!s) return '–';
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
-  return d.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' });
+  // Always include the year — bookings span 2026–2028, no-year is ambiguous.
+  return d.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: '2-digit' });
 };
+
+// Traffic-light style level for a single journey's price compared to the
+// route's median (same tariff/flight filter context). Returns 'low' / 'mid' /
+// 'high'. Thresholds tuned so a meaningful drop (≥15%) shows green and a
+// notable premium (≥15% above median) shows red.
+function priceLevel(amount, median) {
+  if (!amount || !median) return null;
+  const ratio = amount / median;
+  if (ratio <= 0.85) return 'low';
+  if (ratio >= 1.15) return 'high';
+  return 'mid';
+}
+function priceLevelTag(level, ratio) {
+  if (!level) return '';
+  const labels = { low: 'günstig', mid: 'mittel', high: 'teuer' };
+  const sym = { low: '●', mid: '●', high: '●' }[level];
+  const pct = ratio != null ? ` ${ratio < 1 ? '−' : '+'}${Math.round(Math.abs(1 - ratio) * 100)}%` : '';
+  return `<span class="tag price-${level}" title="${labels[level]} (vs. Median dieser Route)">${sym} ${labels[level]}${pct}</span>`;
+}
 const escapeHtml = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const flightLabel = (v) => v === 'with' ? 'inkl. Flug' : v === 'without' ? 'ohne Flug' : 'Flug egal';
@@ -50,7 +70,7 @@ function groupPricesByTariff(prices) {
 
 function renderPriceRow(g) {
   const cell = (p) => p
-    ? `<strong>${eur(p.amountEur)}</strong>${p.perPersonEur ? ` <small>${eur(p.perPersonEur)} p.P.</small>` : ''}`
+    ? `<strong>${eur(p.amountEur)}</strong> <small class="muted">ges.${p.perPersonEur ? ` · ${eur(p.perPersonEur)} p.P.` : ''}</small>`
     : '<span class="muted">–</span>';
   return `<tr>
     <td>${escapeHtml(g.family)}${g.ai ? ' <span class="tag muted-ai">All In verfügbar</span>' : ''}</td>
@@ -63,6 +83,7 @@ function renderPriceRow(g) {
 const views = {
   routes: document.getElementById('view-routes'),
   'route-detail': document.getElementById('view-route-detail'),
+  deals: document.getElementById('view-deals'),
   campaigns: document.getElementById('view-campaigns'),
   watchlist: document.getElementById('view-watchlist'),
 };
@@ -75,6 +96,7 @@ function switchTo(view) {
   document.querySelectorAll('.topbar nav button[data-view]').forEach((b) =>
     b.classList.toggle('active', b.dataset.view === view));
   if (view === 'campaigns' && !campaignsLoaded) loadCampaigns();
+  if (view === 'deals' && !dealsLoaded) loadDeals();
 }
 
 // --- Filter loading ------------------------------------------------------
@@ -86,9 +108,22 @@ async function loadFilters() {
       for (const v of values) sel.insertAdjacentHTML('beforeend', `<option>${escapeHtml(v)}</option>`);
     });
   };
-  fill('ship', r.ships, 'Alle Schiffe');
   fill('region', r.regions, 'Alle Regionen');
   fill('port', r.ports, 'Alle Häfen');
+
+  // Ships as chip-radios — visually prominent + you immediately see what's
+  // available. Single-select since the API filter only accepts one ship.
+  const shipChipHtml = (formId) => {
+    const all = `<label class="chip ship-all"><input type="radio" name="ship" value="" checked> Alle Schiffe</label>`;
+    const items = r.ships.map((s) =>
+      `<label class="chip"><input type="radio" name="ship" value="${escapeHtml(s)}"> ${escapeHtml(s)}</label>`
+    ).join('');
+    return all + items;
+  };
+  for (const id of ['ship-chips', 'campaign-ship-chips', 'deals-ship-chips']) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = shipChipHtml(id);
+  }
 
   availableTariffs = r.tariffBuckets;
   const chipHtml = availableTariffs.map((b) =>
@@ -96,6 +131,7 @@ async function loadFilters() {
   ).join('');
   document.getElementById('tariff-chips').innerHTML = chipHtml;
   document.getElementById('campaign-tariff-chips').innerHTML = chipHtml;
+  document.getElementById('deals-tariff-chips').innerHTML = chipHtml;
 
   document.getElementById('watch-tariff-chips').innerHTML = availableTariffs.map((b) =>
     `<label class="chip"><input type="checkbox" name="tariffBuckets" value="${escapeHtml(b.id)}" checked> ${escapeHtml(b.id.replaceAll('_', ' '))}</label>`
@@ -109,6 +145,10 @@ const statusLine = document.getElementById('status-line');
 
 filtersForm.addEventListener('submit', (e) => { e.preventDefault(); loadRoutes(); });
 filtersForm.addEventListener('reset', () => setTimeout(loadRoutes, 0));
+// Reload on chip toggles (ships, tariffs) for snappy filter feel.
+filtersForm.addEventListener('change', (e) => {
+  if (e.target.matches('input[type=radio], input[type=checkbox]')) loadRoutes();
+});
 
 async function loadRoutes() {
   const params = new URLSearchParams();
@@ -140,10 +180,15 @@ async function loadRoutes() {
 
 function renderRouteCard(r) {
   const price = r.bestPrice ? eur(r.bestPrice.amountEur) : '–';
-  const perPerson = r.bestPrice?.perPersonEur ? `<small>≈ ${eur(r.bestPrice.perPersonEur)} p.P.</small>` : '';
+  const perPerson = r.bestPrice?.perPersonEur ? `<small class="muted">ges. · ${eur(r.bestPrice.perPersonEur)} p.P.</small>` : (r.bestPrice ? `<small class="muted">ges.</small>` : '');
   const tariffTag = r.bestPrice ? `<span class="tag">${escapeHtml(r.bestPrice.tariffName || r.bestPrice.tariffType)}</span>` : '';
   const flightTag = r.bestPrice ? flightChip(r.bestPrice.flightIncluded) : '';
-  const subtitle = `${r.ship || ''} · ${r.region || ''} · ${r.durationNights || '?'} Nächte`;
+  // Show all ships operating this route — AIDA shares yieldRouteCodes across
+  // multiple ships, so a single "ship" label would misrepresent the route.
+  const shipsLabel = (r.shipsAll && r.shipsAll.length > 1)
+    ? `${r.shipsAll[0]} +${r.shipsAll.length - 1}`
+    : (r.ship || '');
+  const subtitle = `${shipsLabel} · ${r.region || ''} · ${r.durationNights || '?'} Nächte`;
   const dateRange = r.firstDeparture ? `${fmtDate(r.firstDeparture)} – ${fmtDate(r.lastDeparture)}` : '';
   return `
     <li class="card">
@@ -194,22 +239,25 @@ function renderRouteDetail(r) {
       ${a.typicalCampaignLeadDays ? `<div><label>Aktion meist</label><strong>${a.typicalCampaignLeadDays} Tage</strong><small>vor Abfahrt</small></div>` : ''}
     </div>`;
 
+  const median = a.median || null;
   const journeysHtml = r.journeys.map((j) => {
     const cheapest = j.cheapestForFilter;
+    const level = cheapest ? priceLevel(cheapest.amountEur, median) : null;
+    const ratio = cheapest && median ? cheapest.amountEur / median : null;
     const camps = j.activeCampaigns?.length
       ? j.activeCampaigns.map((c) => `<span class="tag campaign">${escapeHtml(c.name || c.code)}${c.validTo ? ` bis ${fmtDate(c.validTo)}` : ''}</span>`).join('')
       : '';
     const grouped = groupPricesByTariff(j.latestPrices);
     const groupCount = grouped.length;
     return `
-      <li class="journey">
+      <li class="journey${level ? ' journey-' + level : ''}">
         <div class="journey-head">
           <div>
             <strong>${fmtDateShort(j.departsAt)}</strong> – ${fmtDateShort(j.returnsAt)}
             <small>${j.durationNights} Nächte · ${escapeHtml(j.id)}</small>
           </div>
           <div class="journey-best">
-            ${cheapest ? `<strong>${eur(cheapest.amountEur)}</strong> <span class="tag">${escapeHtml(cheapest.tariffName || cheapest.tariffType)}</span>${flightChip(cheapest.flightIncluded)}` : '<span class="muted">kein Tarif im Filter</span>'}
+            ${cheapest ? `<strong>${eur(cheapest.amountEur)}</strong> <small class="muted">ges. · ${eur(cheapest.perPersonEur ?? Math.round(cheapest.amountEur / 2))} p.P.</small> ${priceLevelTag(level, ratio)} <span class="tag">${escapeHtml(cheapest.tariffName || cheapest.tariffType)}</span>${flightChip(cheapest.flightIncluded)}` : '<span class="muted">kein Tarif im Filter</span>'}
           </div>
         </div>
         ${camps ? `<div class="campaigns">${camps}</div>` : ''}
@@ -312,6 +360,9 @@ let campaignsLoaded = false;
 
 campaignFilters.addEventListener('submit', (e) => { e.preventDefault(); loadCampaigns(); });
 campaignFilters.addEventListener('reset', () => setTimeout(loadCampaigns, 0));
+campaignFilters.addEventListener('change', (e) => {
+  if (e.target.matches('input[type=radio], input[type=checkbox]')) loadCampaigns();
+});
 
 async function loadCampaigns() {
   campaignsLoaded = true;
@@ -353,6 +404,69 @@ function renderCampaignCard(c) {
       <div class="actions">
         ${c.journey.bookingUrl ? `<a href="${escapeHtml(c.journey.bookingUrl)}" target="_blank" rel="noopener">Auf aida.de buchen</a>` : ''}
         <button data-watch-journey="${escapeHtml(c.journey.id)}" data-title="${escapeHtml(c.route.title)}" data-subtitle="${escapeHtml(subtitle)}">Merken</button>
+      </div>
+    </li>`;
+}
+
+// --- Deals view ----------------------------------------------------------
+const dealsFilters = document.getElementById('deals-filters');
+const dealsList = document.getElementById('deals-list');
+const dealsStatus = document.getElementById('deals-status');
+let dealsLoaded = false;
+
+dealsFilters.addEventListener('submit', (e) => { e.preventDefault(); loadDeals(); });
+dealsFilters.addEventListener('reset', () => setTimeout(loadDeals, 0));
+dealsFilters.addEventListener('change', (e) => {
+  if (e.target.matches('input[type=radio], input[type=checkbox]')) loadDeals();
+});
+
+async function loadDeals() {
+  dealsLoaded = true;
+  const params = new URLSearchParams();
+  const fd = new FormData(dealsFilters);
+  for (const k of ['q', 'ship', 'region', 'flight', 'min']) {
+    const v = fd.get(k); if (v) params.set(k, v);
+  }
+  const tariffs = fd.getAll('tariff').filter(Boolean);
+  if (tariffs.length) params.set('tariff', tariffs.join(','));
+  params.set('limit', '200');
+
+  dealsStatus.textContent = 'Lade Deals…';
+  const data = await fetch(`/api/deals?${params}`).then((r) => r.json());
+  dealsStatus.textContent = data.total
+    ? `${data.total} Deals (mind. ${data.minDropPct}% unter Median)`
+    : `Keine Deals mit ≥${data.minDropPct}% gefunden – Schwelle senken oder Filter lockern.`;
+  dealsList.innerHTML = data.items.map(renderDealCard).join('') ||
+    `<li class="muted">Keine Deals passend zum Filter.</li>`;
+
+  dealsList.querySelectorAll('a[data-route-detail]').forEach((a) => {
+    a.addEventListener('click', (e) => { e.preventDefault(); openRouteDetail(a.dataset.routeDetail); });
+  });
+  dealsList.querySelectorAll('button[data-watch-journey]').forEach((b) => {
+    b.addEventListener('click', () => openWatchDialog('journey', b.dataset.watchJourney, b.dataset.title, b.dataset.subtitle));
+  });
+}
+
+function renderDealCard(d) {
+  const subtitle = `${fmtDate(d.cheapestJourney.departsAt)} – ${fmtDate(d.cheapestJourney.returnsAt)} · ${d.cheapestJourney.durationNights} Nächte`;
+  return `
+    <li class="card deal">
+      <div class="campaign-head">
+        <span class="tag drop">−${d.dropPct}%</span>
+        <span class="tag">${escapeHtml(d.tariffBucket)}</span>
+        ${flightChip(d.flightIncluded)}
+      </div>
+      <h3><a href="#" data-route-detail="${escapeHtml(d.route.id)}">${escapeHtml(d.route.title)}</a></h3>
+      <div class="meta">${escapeHtml(d.route.ship || '')} · ${escapeHtml(d.route.region || '')} · ${escapeHtml(subtitle)}</div>
+      <div class="price">
+        <strong>${eur(d.cheapestEur)}</strong>
+        <small class="muted">ges.${d.perPersonEur ? ` · ${eur(d.perPersonEur)} p.P.` : ''}</small>
+        <small>statt Median ${eur(d.medianEur)}</small>
+        <small class="muted">spart ${eur(d.savingEur)} · ${d.journeysConsidered} Termine im Vergleich</small>
+      </div>
+      <div class="actions">
+        ${d.cheapestJourney.bookingUrl ? `<a href="${escapeHtml(d.cheapestJourney.bookingUrl)}" target="_blank" rel="noopener">Auf aida.de buchen</a>` : ''}
+        <button data-watch-journey="${escapeHtml(d.cheapestJourney.id)}" data-title="${escapeHtml(d.route.title)}" data-subtitle="${escapeHtml(subtitle)}">Diese Abfahrt merken</button>
       </div>
     </li>`;
 }

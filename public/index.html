@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>AIDA Preisalarm</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Manrope:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -11,6 +14,7 @@
     <h1>AIDA Preisalarm</h1>
     <nav>
       <button data-view="routes" class="active">Reisen</button>
+      <button data-view="deals">Deals</button>
       <button data-view="campaigns">Aktuelle Aktionen</button>
       <button data-view="watchlist">Meine Merkliste</button>
     </nav>
@@ -21,25 +25,25 @@
     <section id="view-routes">
       <form id="filters" class="filters">
         <div class="row">
-          <input type="search" name="q" placeholder="Suche nach Reise, Schiff, Region oder Hafen…" />
-          <select name="ship"><option value="">Alle Schiffe</option></select>
+          <input type="search" name="q" placeholder="Suche nach Reise, Region oder Hafen…" />
           <select name="region"><option value="">Alle Regionen</option></select>
           <select name="port"><option value="">Alle Häfen</option></select>
-        </div>
-        <div class="row">
-          <label class="inline">Abfahrt von <input type="date" name="departsFrom" /></label>
-          <label class="inline">bis <input type="date" name="departsTo" /></label>
           <select name="flight">
             <option value="any">Flug egal</option>
             <option value="without">ohne Flug</option>
             <option value="with">inkl. Flug</option>
           </select>
         </div>
+        <div class="row chips" id="ship-chips" aria-label="Schiffe"><!-- injected --></div>
+        <div class="row">
+          <label class="inline">Abfahrt von <input type="date" name="departsFrom" /></label>
+          <label class="inline">bis <input type="date" name="departsTo" /></label>
+        </div>
         <div class="row chips" id="tariff-chips" aria-label="Tarife"><!-- injected --></div>
         <div class="row">
           <button type="submit">Filtern</button>
           <button type="reset" class="ghost">Zurücksetzen</button>
-          <span class="muted small" id="cabin-hint">Hinweis: Kabinenfilter (Innen/Balkon/Suite) folgt sobald AIDAs <code>detail.cruise.json</code> wieder online ist.</span>
+          <span class="muted small" id="cabin-hint">Hinweis: Kabinen-spezifische Preise (Innen/Balkon/Suite) sind aktuell nicht über AIDAs öffentliche Suche abrufbar – Vergleich erfolgt auf Tarif-Ebene (LIGHT/CLASSIC/PREMIUM…). Filtere nach Tarifgruppe + Flugoption, um vergleichbare Preise zu sehen.</span>
         </div>
       </form>
       <p id="status-line" class="muted"></p>
@@ -52,12 +56,36 @@
       <article id="route-detail"></article>
     </section>
 
+    <!-- DEALS VIEW -->
+    <section id="view-deals" hidden>
+      <form id="deals-filters" class="filters">
+        <div class="row">
+          <input type="search" name="q" placeholder="Suche…" />
+          <select name="region"><option value="">Alle Regionen</option></select>
+          <select name="flight">
+            <option value="any">Flug egal</option>
+            <option value="without">ohne Flug</option>
+            <option value="with">inkl. Flug</option>
+          </select>
+          <label class="inline">≥ <input type="number" name="min" min="10" max="80" value="30" /> % unter Median</label>
+        </div>
+        <div class="row chips" id="deals-ship-chips" aria-label="Schiffe"></div>
+        <div class="row chips" id="deals-tariff-chips"></div>
+        <div class="row">
+          <button type="submit">Filtern</button>
+          <button type="reset" class="ghost">Zurücksetzen</button>
+          <span class="muted small">Wir vergleichen den günstigsten Termin einer Route mit dem Median aller aktuell buchbaren Termine derselben Route + Tarifgruppe + Flugoption.</span>
+        </div>
+      </form>
+      <p id="deals-status" class="muted"></p>
+      <ul id="deals-list" class="cards"></ul>
+    </section>
+
     <!-- CAMPAIGNS VIEW -->
     <section id="view-campaigns" hidden>
       <form id="campaign-filters" class="filters">
         <div class="row">
           <input type="search" name="q" placeholder="Suche…" />
-          <select name="ship"><option value="">Alle Schiffe</option></select>
           <select name="region"><option value="">Alle Regionen</option></select>
           <select name="flight">
             <option value="any">Flug egal</option>
@@ -65,6 +93,7 @@
             <option value="with">inkl. Flug</option>
           </select>
         </div>
+        <div class="row chips" id="campaign-ship-chips" aria-label="Schiffe"></div>
         <div class="row chips" id="campaign-tariff-chips"></div>
         <div class="row">
           <button type="submit">Filtern</button>

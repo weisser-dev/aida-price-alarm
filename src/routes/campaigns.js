@@ -1,8 +1,13 @@
 const express = require('express');
 const db = require('../db');
 const { TARIFF_BUCKETS, FLIGHT_OPTIONS, expandBuckets, bestPriceForJourney } = require('../services/pricing');
+const { SHIP_NAMES } = require('../services/aidaAdapter');
 
 const router = express.Router();
+
+const SHIP_CODE_BY_NAME = Object.fromEntries(
+  Object.entries(SHIP_NAMES).map(([code, name]) => [name, code]),
+);
 
 function parseTariffBuckets(value) {
   if (!value) return null;
@@ -22,7 +27,11 @@ router.get('/', (req, res) => {
   const conds = ["(c.valid_to IS NULL OR c.valid_to >= date('now'))",
                  "(c.valid_from IS NULL OR c.valid_from <= date('now'))"];
   const params = [];
-  if (ship)   { conds.push('r.ship_name = ?');  params.push(ship); }
+  if (ship) {
+    const code = SHIP_CODE_BY_NAME[ship] || ship;
+    conds.push('j.ship_code = ?');
+    params.push(code);
+  }
   if (region) { conds.push('r.region = ?');     params.push(region); }
   if (q) {
     conds.push('(r.title LIKE ? OR r.route_group LIKE ?)');

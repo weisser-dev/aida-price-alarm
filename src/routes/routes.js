@@ -4,8 +4,15 @@ const {
   TARIFF_BUCKETS, FLIGHT_OPTIONS,
   expandBuckets, bestPriceForJourney, allLatestPricesForJourney, routeAggregate,
 } = require('../services/pricing');
+const { SHIP_NAMES } = require('../services/aidaAdapter');
 
 const router = express.Router();
+
+// Reverse lookup so a ship_name from the filter dropdown ("AIDAcosma") can be
+// translated to the journey-level ship_code ("CO") used for filtering.
+const SHIP_CODE_BY_NAME = Object.fromEntries(
+  Object.entries(SHIP_NAMES).map(([code, name]) => [name, code]),
+);
 
 function parseTariffBuckets(value) {
   if (!value) return null;
@@ -16,7 +23,13 @@ function parseTariffBuckets(value) {
 }
 
 router.get('/filters', (_req, res) => {
-  const ships = db.prepare(`SELECT DISTINCT ship_name FROM routes WHERE ship_name IS NOT NULL ORDER BY ship_name`).all().map((r) => r.ship_name);
+  // Derive the ship list from journeys, not routes: with the ship-iteration
+  // scraper a single yieldRouteCode can be operated by multiple ships and
+  // route.ship_code only reflects the last-scraped one. Joining through
+  // journeys gives every ship that actually runs a journey under any route.
+  const ships = db.prepare(`
+    SELECT DISTINCT ship_code FROM journeys WHERE ship_code IS NOT NULL ORDER BY ship_code
+  `).all().map((r) => SHIP_NAMES[r.ship_code] || r.ship_code);
   const regions = db.prepare(`SELECT DISTINCT region FROM routes WHERE region IS NOT NULL ORDER BY region`).all().map((r) => r.region);
   const ports = db.prepare(`SELECT DISTINCT departure_port FROM routes WHERE departure_port IS NOT NULL ORDER BY departure_port`).all().map((r) => r.departure_port);
   const dates = db.prepare(`SELECT MIN(departs_at) AS first, MAX(departs_at) AS last FROM journeys`).get();
@@ -38,7 +51,14 @@ router.get('/', (req, res) => {
   // Find route ids that have at least one matching journey in the date range.
   const routeConds = [];
   const routeParams = [];
-  if (ship)   { routeConds.push('r.ship_name = ?');     routeParams.push(ship); }
+  if (ship) {
+    // Filter via journeys.ship_code so a route operated by multiple ships
+    // shows up under each one, not just the (random) "primary" ship_code
+    // captured by the last scrape pass.
+    const code = SHIP_CODE_BY_NAME[ship] || ship;
+    routeConds.push('r.id IN (SELECT route_id FROM journeys WHERE ship_code = ?)');
+    routeParams.push(code);
+  }
   if (region) { routeConds.push('r.region = ?');        routeParams.push(region); }
   if (port)   { routeConds.push('r.departure_port = ?');routeParams.push(port); }
   if (q) {
@@ -73,13 +93,19 @@ router.get('/', (req, res) => {
 
   const items = rows.map((r) => {
     const journeys = db.prepare(`
-      SELECT id, departs_at, returns_at, duration_nights
+      SELECT id, departs_at, returns_at, duration_nights, ship_code
       FROM journeys
       WHERE route_id = ?
         ${departsFrom ? 'AND departs_at >= ?' : ''}
         ${departsTo   ? 'AND departs_at <= ?' : ''}
       ORDER BY departs_at ASC
     `).all(r.id, ...(departsFrom ? [departsFrom] : []), ...(departsTo ? [departsTo] : []));
+
+    // Distinct ships actually operating any journey of this route. Useful
+    // because route.ship_name is the (random) "last scraped" ship_code, which
+    // misrepresents routes operated by multiple ships.
+    const shipCodes = [...new Set(journeys.map((j) => j.ship_code).filter(Boolean))].sort();
+    const shipNames = shipCodes.map((c) => SHIP_NAMES[c] || c);
 
     let bestForRoute = null;
     let bestForJourney = null;
@@ -96,8 +122,9 @@ router.get('/', (req, res) => {
       id: r.id,
       title: r.title,
       routeGroup: r.route_group,
-      ship: r.ship_name,
-      shipCode: r.ship_code,
+      ship: shipNames[0] || r.ship_name,
+      shipCode: shipCodes[0] || r.ship_code,
+      shipsAll: shipNames,
       region: r.region,
       departurePort: r.departure_port,
       arrivalPort: r.arrival_port,

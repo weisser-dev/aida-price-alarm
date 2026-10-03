@@ -1,0 +1,16 @@
+services:
+  aida-app:
+    container_name: aida-price-alarm-dev
+    ports:
+      - "3001:3000"
+    environment:
+      USE_MOCK: "false"
+      APP_BASE_URL: "https://aida.weisser.dev"
+    networks:
+      aida-net: {}
+      caddy-net:
+        # Caddy reverse-proxies aida.weisser.dev → aida-price-alarm:3000.
+        # Production runs a container of that name; while it's down we add
+        # the alias here so the dev build can take over the route.
+        aliases:
+          - aida-price-alarm

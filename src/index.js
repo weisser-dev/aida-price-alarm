@@ -8,6 +8,7 @@ require('./db'); // ensure schema exists
 const routesRouter = require('./routes/routes');
 const watchlistRouter = require('./routes/watchlist');
 const campaignsRouter = require('./routes/campaigns');
+const dealsRouter = require('./routes/deals');
 const { runScrape } = require('./services/scrape');
 const db = require('./db');
 
@@ -17,6 +18,7 @@ app.use(express.json({ limit: '128kb' }));
 app.use('/api/routes', routesRouter);
 app.use('/api/watch', watchlistRouter);
 app.use('/api/campaigns', campaignsRouter);
+app.use('/api/deals', dealsRouter);
 
 app.get('/api/status', (_req, res) => {
   const lastRun = db.prepare(`SELECT * FROM scrape_runs ORDER BY id DESC LIMIT 1`).get();
@@ -34,11 +36,23 @@ app.get('/api/status', (_req, res) => {
            (SELECT COUNT(*) FROM journeys j JOIN routes r2 ON r2.id = j.route_id WHERE r2.region = routes.region) AS journeys
     FROM routes WHERE region IS NOT NULL GROUP BY region ORDER BY region
   `).all();
+  // Derive per-ship stats from journey.ship_code so multi-ship routes show
+  // up under each ship that actually operates them — route.ship_name only
+  // captures the (random) last-scraped ship.
   const perShip = db.prepare(`
-    SELECT ship_name, COUNT(*) AS routes,
-           (SELECT COUNT(*) FROM journeys j JOIN routes r2 ON r2.id = j.route_id WHERE r2.ship_name = routes.ship_name) AS journeys
-    FROM routes WHERE ship_name IS NOT NULL GROUP BY ship_name ORDER BY ship_name
-  `).all();
+    SELECT j.ship_code,
+           COUNT(DISTINCT j.route_id) AS routes,
+           COUNT(*)                   AS journeys
+    FROM journeys j
+    WHERE j.ship_code IS NOT NULL
+    GROUP BY j.ship_code
+    ORDER BY j.ship_code
+  `).all().map((r) => ({
+    ship_code: r.ship_code,
+    ship_name: require('./services/aidaAdapter').SHIP_NAMES[r.ship_code] || r.ship_code,
+    routes: r.routes,
+    journeys: r.journeys,
+  }));
   res.json({
     ok: true,
     mockMode: config.scrape.useMock,

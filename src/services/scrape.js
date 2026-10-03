@@ -133,7 +133,7 @@ async function runScrape({ notify = true, log = console } = {}) {
   const runId = runInfo.lastInsertRowid;
 
   let totals = { routes: 0, journeys: 0, prices: 0, campaigns: 0 };
-  const regionErrors = [];
+  const chunkErrors = [];
 
   try {
     if (config.scrape.useMock) {
@@ -144,17 +144,19 @@ async function runScrape({ notify = true, log = console } = {}) {
       totals.prices += r.priceCount;
       totals.campaigns += r.campaignCount;
     } else {
-      // Streaming + persist-per-region: a partial scrape still leaves data
-      // in the DB if Akamai blocks half-way.
+      // Streaming + persist-per-chunk (one chunk = one ship since we switched
+      // away from the broken region iteration): a partial scrape still leaves
+      // data in the DB if Akamai blocks half-way.
       for await (const chunk of adapter.streamCatalog({ log })) {
-        if (chunk.error) regionErrors.push(`${chunk.region}: ${chunk.error}`);
+        const label = chunk.shipName || chunk.ship || chunk.region;
+        if (chunk.error) chunkErrors.push(`${label}: ${chunk.error}`);
         if (chunk.routes.length) {
           const r = persistRoutes(chunk.routes);
           totals.routes += r.routeCount;
           totals.journeys += r.journeyCount;
           totals.prices += r.priceCount;
           totals.campaigns += r.campaignCount;
-          log.info?.(`[scrape] persisted region=${chunk.region}: +${r.routeCount} routes, +${r.journeyCount} journeys, +${r.priceCount} prices`);
+          log.info?.(`[scrape] persisted ship=${label}: +${r.routeCount} routes, +${r.journeyCount} journeys, +${r.priceCount} prices`);
         }
       }
     }
@@ -163,14 +165,14 @@ async function runScrape({ notify = true, log = console } = {}) {
     throw err;
   }
 
-  const status = regionErrors.length ? 'partial' : 'ok';
+  const status = chunkErrors.length ? 'partial' : 'ok';
   finishRun.run(
     status,
     totals.routes, totals.journeys, totals.prices, totals.campaigns,
-    regionErrors.length ? regionErrors.join(' | ') : null,
+    chunkErrors.length ? chunkErrors.join(' | ') : null,
     runId,
   );
-  log.info?.(`[scrape] done (${status}): ${totals.routes} routes / ${totals.journeys} journeys / ${totals.prices} prices / ${totals.campaigns} campaigns${regionErrors.length ? ` · errors in ${regionErrors.length} region(s)` : ''}`);
+  log.info?.(`[scrape] done (${status}): ${totals.routes} routes / ${totals.journeys} journeys / ${totals.prices} prices / ${totals.campaigns} campaigns${chunkErrors.length ? ` · errors in ${chunkErrors.length} chunk(s)` : ''}`);
 
   if (notify) {
     const alerts = findAlerts();
