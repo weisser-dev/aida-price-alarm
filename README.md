@@ -1,228 +1,47 @@
-# AIDA Preisalarm
+# AIDA Price Alarm
 
-Beobachtet AIDA-Reisen: **wie viele Kabinen sind frei**, **was kostet es** — und gibt eine
-begründete Einschätzung, ob man buchen oder noch warten sollte.
+A small self-hosted watcher for AIDA cruises: it tracks **how many cabins are still free** and **what they cost**, and gives a reasoned hint whether to book now or wait. Single container with a web UI, German interface, standard-library Python only.
 
-Läuft als einzelner Container auf dem VPS hinter Caddy, misst **alle vier Stunden** und
-zusätzlich auf Knopfdruck. Mehrere Reisen gleichzeitig, jede mit eigenem Überwachungsende.
+> Status: **no longer maintained / switched off** (the hosted instance was shut down in 2026). Kept as a reference; the booking-site scraping depends on third-party markup and will likely need fixes.
 
-Live: <https://aida.weisser.dev>
+## What it measures
 
----
+- **Cabins** - the same query the booking flow uses for cabin selection, counted per sub-category and deck
+- **Prices** - the full category x tariff table of the travel agency page
 
-## Was es misst
+One row per day is stored in `data/`; a second run on the same day replaces that day's row, so manual refreshes do not skew the series.
 
-**Kabinen** — über dieselbe Abfrage, die die Kabinenwahl der Buchungsstrecke benutzt.
-Gezählt wird, was dort tatsächlich wählbar ist, aufgeschlüsselt nach Unterkategorie und Deck.
+## The assessment
 
-**Preise** — die komplette Tabelle Kategorie × Tarif von euresa-reisen.de.
+The page shows "book now", "decide soon" or "wait", plus every signal with its actual number: price trend (fitted line), cabin outflow per day, number of categories that lost the cheap tariff, days until the offer ends, days until departure, price at its historical low. It is explicitly **not a forecast**; it only summarises the own measurements and warns when data is thin. Logic: `einschaetzung()` in `aida_watch.py`, covered by `selbsttest.py`.
 
-Das Ergebnis landet als eine Zeile je Tag in `data/daten/<Reisecode>/`. Ein zweiter Lauf am
-selben Tag **ersetzt** die Tageszeile, statt eine zweite anzuhängen — der Knopf verwässert
-die Messreihe also nicht.
-
-### Das wichtigste Signal ist nicht die Kabinenzahl
-
-Bei der AIDAcosma haben Meerblick, Verandakabine Deluxe und Junior-Suite schon jetzt keinen
-LIGHT-Preis mehr — dort ist das Light-Kontingent aufgebraucht, obwohl die Kabinen physisch
-frei sind. Das Kontingent eines Tarifs ist viel kleiner als die Zahl der freien Kabinen.
-Verschwindet der Tarifpreis der Wunschkategorie, ist die Konstellation weg — lange bevor
-das Schiff voll ist. Genau darauf zielt der Hauptalarm.
-
----
-
-## Die Einschätzung
-
-Oben auf der Seite steht „jetzt buchen", „bald entscheiden" oder „abwarten", darunter jedes
-einzelne Signal mit seiner tatsächlichen Zahl. Bewertet werden:
-
-| Signal | Wirkung |
-|---|---|
-| Preistrend (Ausgleichsgerade über die Messreihe) | steigend → buchen, fallend → warten |
-| Kabinenabfluss pro Tag, hochgerechnet auf den Bestand | schneller Abfluss → buchen |
-| Anzahl Kategorien, die den Tarif schon verloren haben | ≥ 3 → Kontingent zieht sich zurück |
-| Tage bis Aktionsende | ≤ 7 → deutlich, ≤ 14 → leicht |
-| Tage bis Abreise | < 60 → leicht |
-| Preis auf dem bisherigen Tief | leicht (nur wenn der Preis sich überhaupt bewegt hat) |
-
-**Das ist ausdrücklich keine Vorhersage.** Die Regeln kennen weder AIDAs Kontingentplanung
-noch die Nachfrage — sie fassen nur zusammen, was in der eigenen Messreihe steht. Deshalb
-weist die Karte immer aus, wie viele Messungen über wie viele Tage dahinterstehen, und
-warnt selbst, wenn die Datenlage dünn ist. Die Logik steckt in `einschaetzung()` in
-`aida_watch.py` und ist in `selbsttest.py` mit Beispielreihen abgesichert.
-
----
-
-## Deployment
-
-Push auf `main` → GitHub Actions → Selbsttest → `scp` → `ssh` → `docker compose up -d --build`.
-Genau wie vorher, nur ohne Node.
-
-**Benötigte Secrets:** `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `SMTP_USER`,
-`SMTP_PASS`, optional `MAIL_AN` (sonst geht die Mail an `SMTP_USER`), optional `NTFY_URL`
-und `NTFY_TOKEN`.
-
-Der Workflow sichert vor jedem Deploy `data/` nach `/opt/backups/aida/aida_<Zeitstempel>.tgz`
-(die letzten zehn bleiben liegen), tauscht den Code aus, stellt `data/` zurück und wartet am
-Ende darauf, dass der Container tatsächlich antwortet — sonst schlägt der Lauf fehl.
-
-### Caddy
-
-Der Container hängt im `caddy-net` und macht **kein** Port-Mapping. Caddy erreicht ihn also
-unter seinem Containernamen. Die Datei gehört in den `sites/`-Ordner der Caddy-Installation:
-
-```caddyfile
-aida.weisser.dev {
-    encode gzip zstd
-    reverse_proxy aida-price-alarm:3000
-}
-```
-
-Der Upstream heißt **`aida-price-alarm:3000`** — das ist der `container_name` aus der
-`docker-compose.yml` und der Port aus `APP_PORT`. Zeigt der Block auf etwas anderes,
-landet man auf dem falschen Dienst oder bekommt 502.
-
-#### Optional: Passwortschutz
-
-Die Anwendung selbst hat bewusst keine eigene Anmeldung. Wer die Seite nicht offen im Netz
-haben will, lässt Caddy davorstehen:
-
-```caddyfile
-aida.weisser.dev {
-    encode gzip zstd
-
-    # Achtung: in Caddy 2.8.4 heisst die Direktive noch "basicauth".
-    # Erst spaetere Versionen kennen "basic_auth" - 2.8.4 quittiert das
-    # mit "unrecognized directive".
-    basicauth {
-        erik <bcrypt-hash>
-    }
-
-    reverse_proxy aida-price-alarm:3000
-}
-```
-
-Hash erzeugen (fragt nach dem Passwort, statt es in der Shell-History zu hinterlassen):
+## Run
 
 ```bash
-docker run --rm -it caddy:2.8.4-alpine caddy hash-password
+python3 selbsttest.py                    # offline self-test
+python3 aida_watch.py                    # measure all active trips
+python3 aida_watch.py --code <tripcode>  # a single trip
+python3 aida_watch.py --trocken          # dry run
+python3 aida_watch.py --status           # full state as JSON
+python3 server.py --port 8777            # web UI
 ```
 
-Ohne Schutz ist die Seite offen im Netz. Sie enthält nichts Geheimes, aber jeder Fremde
-könnte den Aktualisieren-Knopf drücken und damit Abrufe auf der Buchungsstrecke auslösen.
-Dagegen hilft auch ohne Passwort der Mindestabstand (`MINDESTABSTAND_SEKUNDEN`): mehr als
-ein Abruf je Reise und Minute geht ohnehin nicht durch.
+Or in a container: `docker compose up -d --build` (the container exposes its port on a Docker network only, put a reverse proxy in front). Requires Python 3.9+, no third-party packages.
 
----
+## Configuration
 
-## Einstellungen
+Environment variables (see `.env.example`): `LAUF_INTERVALL_STUNDEN` (measurement interval, default 4), `LAUF_OFFSET_MINUTEN`, `MINDESTABSTAND_SEKUNDEN` (minimum gap between fetches per trip), `AIDA_DATA_DIR`, `APP_BASE_URL`, `SMTP_*` / `MAIL_AN` (mail alerts), `NTFY_URL` / `NTFY_TOKEN` (push). Alert thresholds are in `config.json`. The app has no login of its own; protect it at the reverse proxy.
 
-Alles über Umgebungsvariablen, siehe `.env.example`. Die wichtigsten:
+## Layout
 
-| Variable | Bedeutung |
+| Path | Content |
 |---|---|
-| `LAUF_INTERVALL_STUNDEN` | Messtakt in Stunden (4). Leer = kein Zeitplan, nur Knopf |
-| `LAUF_OFFSET_MINUTEN` | Minute im Raster (7 → 00:07, 04:07, 08:07 …) |
-| `MINDESTABSTAND_SEKUNDEN` | Sperre zwischen zwei Abrufen derselben Reise (60) |
-| `AIDA_DATA_DIR` | wo die veränderlichen Daten liegen (im Container `/app/data`) |
-| `APP_BASE_URL` | wird automatisch als erlaubter Hostname übernommen |
-| `SMTP_*`, `MAIL_AN` | E-Mail-Meldung bei Alarm |
-| `NTFY_URL`, `NTFY_TOKEN` | zusätzlich Push per ntfy |
+| `aida_watch.py` | fetching, evaluation, assessment, alerts; also a CLI |
+| `server.py` | web UI, API, scheduler |
+| `selbsttest.py` | offline tests (quality gate in the workflow) |
+| `web/index.html` | the page, all inline |
+| `vorgaben/` | seed data copied into an empty `data/` on first start |
 
-Schwellen für die Alarme stehen in `config.json`. Liegt eine `config.json` im Datenverzeichnis,
-gewinnt die — so überlebt eine Anpassung den nächsten Deploy.
+## Please be polite to the source
 
----
-
-## Reisen verwalten
-
-Auf der Seite: Reisecode eintragen (steht in jeder AIDA-URL, z. B. `CO07261003`), „Reise
-suchen". Der Server holt Titel, Termin, Preistabelle und probiert die Kabinencodes durch,
-bis er weiß, welche Kategorien das Schiff hat — mitsamt freien Kabinen. Anhaken, Wunschkabine
-und Flugkosten wählen, fertig. Die erste Messung passiert gleich mit.
-
-Jede Reise ist danach eine Datei unter `data/reisen/<Code>.json`. Die Kabinencodes der
-AIDAcosma:
-
-| Kategorie | Codes |
-|---|---|
-| Innenkabine | `IA` `IB` `IC` |
-| Meerblickkabine | `MA` |
-| Balkonkabine | `BA` `BB` `BC` |
-| Verandakabine Komfort | `VA` `VB` `VC` |
-| Verandakabine Deluxe | `DA` `DB` |
-| Junior-Suite | `JB` |
-
-Balkonkabine und Verandakabine Komfort sind **verschiedene** Kategorien — im LIGHT-Tarif
-zufällig gleich teuer (2.258 €), ab PREMIUM nicht mehr (2.900 € vs. 3.030 €).
-
----
-
-## Die zwei Preisdarstellungen
-
-Sie widersprechen sich nicht, sie messen Verschiedenes:
-
-- **euresa-reisen.de** → Gesamtpreis **pro Kabine, ohne Flug**. Das misst dieses Werkzeug.
-- **aida.de** → **pro Person, inklusive Flug**. Das sieht man beim Buchen.
-
-```
-p.P. inkl. Flug = (Kabinenpreis + Flugkosten für alle Reisenden) / Anzahl Reisende
-```
-
-Für die AIDAcosma: ERF 1.000 €, MUC 800 € (je 2 Personen), am 15.08.2026 dreifach gegen
-aida.de belegt. **Die Flugkosten sind eine Annahme, kein gemessener Wert** — bewegt sich der
-echte Flugpreis, bleibt das unsichtbar und der Check meldet fälschlich „unverändert".
-
----
-
-## Von Hand
-
-```bash
-python3 selbsttest.py                    # Auswertung prüfen, ohne Netz
-python3 aida_watch.py                    # alle aktiven Reisen messen
-python3 aida_watch.py --code CO07261003  # nur eine
-python3 aida_watch.py --trocken          # abrufen und anzeigen, nichts schreiben
-python3 aida_watch.py --status           # kompletter Stand als JSON
-python3 server.py --port 8777            # Oberfläche lokal
-```
-
-Im Container: `docker exec aida-price-alarm python3 aida_watch.py --status`
-
-Es braucht **keine** Fremdbibliotheken — reine Standardbibliothek, Python ≥ 3.9.
-
----
-
-## Anstand gegenüber den Quellen
-
-`aida.euresa-reisen.de` ist eine fremde Buchungsstrecke und per robots.txt für automatisierte
-Zugriffe gesperrt. Sechs Abrufe am Tag plus gelegentliches Nachsehen von Hand ist etwas
-anderes als ein Crawler. Alle Kategorien einer Reise werden in **einem** Aufruf abgefragt,
-und der Mindestabstand verhindert Klick-Gewitter. Bitte nicht enger takten und
-`MINDESTABSTAND_SEKUNDEN` nicht auf 0 setzen.
-
----
-
-## Wenn etwas nicht mehr geht
-
-| Symptom | Ursache und Abhilfe |
-|---|---|
-| Seite lädt nicht | `docker compose -p aida-price-alarm logs -f aida-app` |
-| Überall 403 | Host stimmt nicht — `APP_BASE_URL` prüfen oder `AIDA_ALLOWED_HOSTS` setzen |
-| `Preisabschnitt nicht gefunden` | euresa hat das Layout geändert — Seite ansehen, `parse_preise()` nachziehen, `selbsttest.py` anpassen |
-| `Kabinenabruf HTTP 403/404` | Buchungsstrecke geändert — Kabinenwahl im Browser öffnen, im Netzwerk-Tab `cabins.php` ansehen |
-| Messreihe weg | `/opt/backups/aida/` — die letzten zehn Sicherungen liegen dort |
-| Kategorien beim Anlegen nicht erkannt | Präfix fehlt in `config.json` → `kategorie_prefixe` |
-
----
-
-## Aufbau
-
-| Datei | Inhalt |
-|---|---|
-| `aida_watch.py` | Abruf, Auswertung, Einschätzung, Alarme. Auch als CLI |
-| `server.py` | Oberfläche, API, Zeitplan |
-| `selbsttest.py` | Prüfungen ohne Netz — Qualitätstor im Workflow |
-| `config.json` | globale Einstellungen, Tarif- und Kategorienamen |
-| `web/index.html` | die Seite, alles inline, keine Fremdskripte |
-| `vorgaben/` | Startbestand: wird beim ersten Start in ein leeres `data/` kopiert |
-| `data/` | die veränderlichen Daten (Volume, nicht im Repo) |
+The upstream booking site disallows automated access in its robots.txt. This tool fetches a handful of times per day and enforces a minimum gap; do not tighten the interval.
